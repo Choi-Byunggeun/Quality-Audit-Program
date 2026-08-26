@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>품질심사 일정 계획 관리 시스템</title>
+    <!-- Google Fonts: Outfit & Noto Sans KR -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="fa-solid fa-plane-shield"></i>
+                <span>AuditPlanner</span>
+            </div>
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="dashboard">
+                    <i class="fa-solid fa-chart-pie"></i> 대시보드
+                </button>
+                <button class="nav-item" data-tab="mypage" id="nav-mypage">
+                    <i class="fa-solid fa-user-check"></i> 내 심사 일정
+                    <span class="nav-alert-badge mypage-badge" id="nav-my-alert-count" style="display:none; background:#ec4899;">0</span>
+                </button>
+                <button class="nav-item" data-tab="calendar">
+                    <i class="fa-solid fa-calendar-days"></i> 연간 세부 계획
+                </button>
+                <button class="nav-item" data-tab="list">
+                    <i class="fa-solid fa-list-check"></i> 월별 목록
+                </button>
+                <button class="nav-item" data-tab="manage">
+                    <i class="fa-solid fa-database"></i> 심사 대상 관리
+                </button>
+                <button class="nav-item" data-tab="auditors" id="nav-auditors">
+                    <i class="fa-solid fa-id-badge"></i> 심사원 관리
+                    <span class="nav-alert-badge" id="nav-auditor-alert-count" style="display:none;">0</span>
+                </button>
+                <button class="nav-item admin-only" data-tab="users" id="nav-users" style="display:none;">
+                    <i class="fa-solid fa-users-gear"></i> 계정/권한 관리
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="btn btn-primary btn-block admin-only" id="btn-open-event-modal">
+                    <i class="fa-solid fa-circle-plus"></i> 이벤트 등록
+                </button>
+                <div class="user-quick-info-card" id="sidebar-user-card" style="display:none;">
+                    <div class="user-avatar" id="sidebar-user-avatar"><i class="fa-solid fa-user-shield"></i></div>
+                    <div class="user-meta">
+                        <div class="user-name" id="sidebar-user-name">게스트</div>
+                        <div class="user-role-badge" id="sidebar-user-role">조회 전용</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Body -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-title">
+                    <h1 id="page-title">대시보드</h1>
+                    <p id="page-subtitle">올해의 품질심사 현황 및 이번 달 수행 일정입니다.</p>
+                </div>
+                <div class="header-actions">
+                    <div class="year-selector-wrapper">
+                        <label for="global-year-select">조회 연도</label>
+                        <select id="global-year-select" class="select-field">
+                            <option value="2026" selected>2026년</option>
+                            <option value="2027">2027년</option>
+                            <option value="2028">2028년</option>
+                            <option value="2029">2029년</option>
+                            <option value="2030">2030년</option>
+                        </select>
+                    </div>
+                    
+                    <!-- User Auth Widget -->
+                    <div class="auth-header-widget" id="auth-header-widget">
+                        <!-- Logged In State -->
+                        <div class="auth-logged-in" id="auth-logged-in" style="display:none;">
+                            <div class="user-pill">
+                                <span class="role-chip" id="header-role-chip">관리자</span>
+                                <span class="user-display-name" id="header-user-name">시스템 관리자</span>
+                            </div>
+                            <button class="btn-icon-subtle" id="btn-open-change-pw" title="비밀번호 변경">
+                                <i class="fa-solid fa-key"></i>
+                            </button>
+                            <button class="btn-icon-subtle btn-logout" id="btn-logout" title="로그아웃">
+                                <i class="fa-solid fa-right-from-bracket"></i>
+                            </button>
+                        </div>
+                        <!-- Logged Out State -->
+                        <div class="auth-logged-out" id="auth-logged-out">
+                            <button class="btn btn-outline-primary" id="btn-open-login-modal">
+                                <i class="fa-solid fa-right-to-bracket"></i> 로그인
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- TAB 1: DASHBOARD -->
+            <section id="tab-dashboard" class="tab-pane active">
+                <!-- WORLD MAP OVERVIEW CARD -->
+                <div class="dashboard-map-card section-card">
+                    <div class="map-card-header">
+                        <div class="map-title-wrap">
+                            <div class="map-title-badge"><i class="fa-solid fa-earth-asia"></i> 글로벌 네트워크</div>
+                            <h2>품질심사 대상 위치 현황 <span id="map-target-count-badge" class="badge badge-accent">0개소</span></h2>
+                        </div>
+                        <div class="map-controls">
+                            <!-- Filter buttons: Selected Year / This Month / All -->
+                            <div class="map-btn-group" id="map-view-filter">
+                                <button class="map-filter-btn active" data-filter="year"><i class="fa-solid fa-calendar-check"></i> <span id="map-year-lbl">2026년</span> 대상</button>
+                                <button class="map-filter-btn" data-filter="month"><i class="fa-solid fa-bolt"></i> 이번 달 (<span id="map-month-lbl">8월</span>) 대상</button>
+                                <button class="map-filter-btn" data-filter="all"><i class="fa-solid fa-globe"></i> 전체 등록 대상</button>
+                            </div>
+                            
+                            <!-- Map Theme Switcher -->
+                            <div class="map-theme-toggle">
+                                <button id="btn-map-theme-dark" class="theme-btn active" title="다크 모드 지도"><i class="fa-solid fa-moon"></i> 다크</button>
+                                <button id="btn-map-theme-light" class="theme-btn" title="컬러/라이트 모드 지도"><i class="fa-solid fa-sun"></i> 라이트</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Continent & Legend Bar -->
+                    <div class="map-subbar">
+                        <div class="continent-pills" id="continent-filter-pills">
+                            <button class="continent-pill active" data-continent="all">전체 대륙</button>
+                            <button class="continent-pill pill-asia" data-continent="아시아"><span class="dot dot-asia"></span> 아시아 (<span id="count-asia">0</span>)</button>
+                            <button class="continent-pill pill-europe" data-continent="유럽"><span class="dot dot-europe"></span> 유럽 (<span id="count-europe">0</span>)</button>
+                            <button class="continent-pill pill-oceania" data-continent="오세아니아"><span class="dot dot-oceania"></span> 오세아니아 (<span id="count-oceania">0</span>)</button>
+                            <button class="continent-pill pill-north-america" data-continent="북미"><span class="dot dot-north-america"></span> 북미 (<span id="count-north-america">0</span>)</button>
+                            <button class="continent-pill pill-middle-east" data-continent="중동/기타"><span class="dot dot-middle-east"></span> 중동/기타 (<span id="count-middle-east">0</span>)</button>
+                        </div>
+                        <div class="map-legend">
+                            <span class="legend-item"><span class="legend-dot dot-direct"></span> 직접심사 (●)</span>
+                            <span class="legend-item"><span class="legend-dot dot-indirect"></span> 간접심사 (◎)</span>
+                            <span class="legend-item"><span class="legend-dot dot-current-month"></span> 이달 수행 (펄스)</span>
+                        </div>
+                    </div>
+
+                    <!-- Map Viewport Wrapper -->
+                    <div class="world-map-wrapper">
+                        <div class="world-map-viewport" id="world-map-viewport">
+                            <img id="world-map-img" src="/static/map_continents_dark.webp" alt="Global Audit Locations Map" class="world-map-image">
+                            <div class="map-markers-layer" id="map-markers-layer">
+                                <!-- Pins dynamically rendered here -->
+                            </div>
+                        </div>
+
+                        <!-- Floating Detail Tooltip Card -->
+                        <div id="map-tooltip" class="map-hover-tooltip" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card stat-total">
+                        <div class="stat-icon"><i class="fa-solid fa-clipboard-list"></i></div>
+                        <div class="stat-info">
+                            <h3>총 심사 건수</h3>
+                            <p class="stat-val" id="stat-total-val">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-direct">
+                        <div class="stat-icon"><i class="fa-solid fa-user-check"></i></div>
+                        <div class="stat-info">
+                            <h3>직접 심사</h3>
+                            <p class="stat-val" id="stat-direct-val">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-indirect">
+                        <div class="stat-icon"><i class="fa-solid fa-paste"></i></div>
+                        <div class="stat-info">
+                            <h3>간접 심사</h3>
+                            <p class="stat-val" id="stat-indirect-val">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 12-Month Timeline Bar Chart -->
+                <div class="section-card" style="margin-bottom:24px;">
+                    <div class="section-header">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <h2><i class="fa-solid fa-chart-column" style="color:var(--accent-blue);"></i> 월별 심사 일정 타임라인 <span class="badge badge-blue" id="timeline-year-badge">2026년</span></h2>
+                        </div>
+                        <div style="font-size:12px; color:var(--text-secondary); display:flex; gap:12px;">
+                            <span><span style="display:inline-block;width:10px;height:10px;background:var(--accent-blue);border-radius:2px;margin-right:4px;"></span>직접심사</span>
+                            <span><span style="display:inline-block;width:10px;height:10px;background:var(--accent-orange);border-radius:2px;margin-right:4px;"></span>간접심사</span>
+                        </div>
+                    </div>
+                    <div id="monthly-timeline-chart" style="padding: 8px 0 16px;"></div>
+                </div>
+
+                <div class="dashboard-section section-card">
+                    <div class="section-header">
+                        <h2>이번 달 실시 예정 심사 (<span id="current-month-lbl">7</span>월)</h2>
+                        <span class="badge badge-accent" id="month-count-badge">0건</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>유형</th>
+                                    <th>상태</th>
+                                    <th>심사 대상</th>
+                                    <th>구분</th>
+                                    <th>예정 날짜</th>
+                                    <th>담당자</th>
+                                    <th>진행 여부</th>
+                                </tr>
+                            </thead>
+                            <tbody id="this-month-table-body">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: ANNUAL PLAN -->
+            <section id="tab-calendar" class="tab-pane">
+
+                <!-- View Mode Toggle Bar -->
+                <div class="filter-bar section-card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span style="font-weight:600; font-size:15px; color:var(--text-primary);"><i class="fa-solid fa-layer-group"></i> 보기 모드:</span>
+                        <div class="map-btn-group" id="plan-view-toggle">
+                            <button class="map-filter-btn active" id="btn-view-matrix" data-view="matrix"><i class="fa-solid fa-table-cells"></i> 5개년 롤링 매트릭스</button>
+                            <button class="map-filter-btn" id="btn-view-year" data-view="year"><i class="fa-solid fa-calendar-check"></i> 연도별 상세 계획</button>
+                            <button class="map-filter-btn" id="btn-view-calendar" data-view="calendar"><i class="fa-solid fa-calendar-days"></i> 월별 캘린더</button>
+                        </div>
+                    </div>
+                    <div style="font-size:13px; color:var(--text-secondary);">
+                        <span class="badge badge-blue">● 직접심사</span>
+                        <span class="badge badge-orange" style="margin-left:4px;">◎ 간접심사</span>
+                        <span class="badge badge-gray" style="margin-left:4px;">비운항 제외</span>
+                    </div>
+                </div>
+
+                <!-- 1) 5-Year Rolling Matrix -->
+                <div id="matrix-view-container" class="section-card">
+                    <div class="table-responsive">
+                        <table class="data-table" id="matrix-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:50px;">ID</th>
+                                    <th style="width:130px;">심사 분야</th>
+                                    <th style="width:80px;">운항</th>
+                                    <th style="min-width:180px;">심사 대상 (Station)</th>
+                                    <th style="width:95px;">심사 주기</th>
+                                    <th style="text-align:center; width:105px;">2026년</th>
+                                    <th style="text-align:center; width:105px;">2027년</th>
+                                    <th style="text-align:center; width:105px;">2028년</th>
+                                    <th style="text-align:center; width:105px;">2029년</th>
+                                    <th style="text-align:center; width:105px;">2030년</th>
+                                </tr>
+                            </thead>
+                            <tbody id="matrix-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 2) Year-Tab Based Single-Year Detail Plan -->
+                <div id="year-view-container" style="display:none;">
+
+                    <!-- ① 연도 탭 + 구분/월 필터 (기존) -->
+                    <div class="section-card" style="margin-bottom:14px; padding:16px 20px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                            <div style="display:flex; gap:8px; flex-wrap:wrap;" id="year-tab-bar">
+                                <button class="year-tab-btn active" data-year="2026">2026년</button>
+                                <button class="year-tab-btn" data-year="2027">2027년</button>
+                                <button class="year-tab-btn" data-year="2028">2028년</button>
+                                <button class="year-tab-btn" data-year="2029">2029년</button>
+                                <button class="year-tab-btn" data-year="2030">2030년</button>
+                            </div>
+                            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                <label style="font-size:13px; color:var(--text-secondary);"><i class="fa-solid fa-filter"></i> 구분:</label>
+                                <select id="year-view-type-filter" class="select-field" style="min-width:110px; font-size:13px; padding:6px 10px;">
+                                    <option value="all">전체</option>
+                                    <option value="직접">● 직접심사</option>
+                                    <option value="간접">◎ 간접심사</option>
+                                </select>
+                                <label style="font-size:13px; color:var(--text-secondary); margin-left:6px;"><i class="fa-solid fa-calendar"></i> 월:</label>
+                                <select id="year-view-month-filter" class="select-field" style="min-width:80px; font-size:13px; padding:6px 10px;">
+                                    <option value="0">전체 월</option>
+                                    <option value="1">1월</option><option value="2">2월</option><option value="3">3월</option>
+                                    <option value="4">4월</option><option value="5">5월</option><option value="6">6월</option>
+                                    <option value="7">7월</option><option value="8">8월</option><option value="9">9월</option>
+                                    <option value="10">10월</option><option value="11">11월</option><option value="12">12월</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- Monthly Mini Timeline for selected year -->
+                        <div id="year-view-timeline" style="margin-top:16px;"></div>
+                    </div>
+
+                    <!-- ② 6대 카테고리 필터 탭 -->
+                    <div class="cat-filter-wrap">
+                        <div class="cat-filter-label">
+                            <i class="fa-solid fa-tags"></i> 심사 분야 카테고리 필터
+                        </div>
+                        <div class="cat-filter-tabs" id="cat-filter-tabs">
+                            <button class="cat-tab-btn active" data-cat="all">
+                                <i class="fa-solid fa-border-all"></i> 전체
+                                <span class="cat-count-badge" id="cat-count-all">0</span>
+                            </button>
+                            <button class="cat-tab-btn" data-cat="cat1">
+                                <span style="width:8px;height:8px;border-radius:50%;background:var(--cat1-color);display:inline-block;"></span>
+                                국내 주재정비
+                                <span class="cat-count-badge" id="cat-count-cat1">0</span>
+                            </button>
+                            <button class="cat-tab-btn" data-cat="cat2">
+                                <span style="width:8px;height:8px;border-radius:50%;background:var(--cat2-color);display:inline-block;"></span>
+                                해외 주재정비
+                                <span class="cat-count-badge" id="cat-count-cat2">0</span>
+                            </button>
+                            <button class="cat-tab-btn" data-cat="cat3">
+                                <span style="width:8px;height:8px;border-radius:50%;background:var(--cat3-color);display:inline-block;"></span>
+                                국내 운항정비 위탁
+                                <span class="cat-count-badge" id="cat-count-cat3">0</span>
+                            </button>
+                            <button class="cat-tab-btn" data-cat="cat4">
+                                <span style="width:8px;height:8px;border-radius:50%;background:var(--cat4-color);display:inline-block;"></span>
+                                해외 운항정비 위탁
+                                <span class="cat-count-badge" id="cat-count-cat4">0</span>
+                            </button>
+                            <button class="cat-tab-btn" data-cat="cat5">
+                                <span style="width:8px;height:8px;border-radius:50%;background:var(--cat5-color);display:inline-block;"></span>
+                                항공기 중정비 위탁
+                                <span class="cat-count-badge" id="cat-count-cat5">0</span>
+                            </button>
+                            <button class="cat-tab-btn" data-cat="cat6">
+                                <span style="width:8px;height:8px;border-radius:50%;background:var(--cat6-color);display:inline-block;"></span>
+                                엔진 중정비 위탁
+                                <span class="cat-count-badge" id="cat-count-cat6">0</span>
+                            </button>
+                        </div>
+
+                        <!-- ③ 뷰 모드 토글 + 국가/지점 필터 -->
+                        <div class="year-view-mode-row">
+                            <div class="view-mode-toggle" id="year-view-mode-toggle">
+                                <button class="view-mode-btn active" data-mode="list" id="btn-view-mode-list">
+                                    <i class="fa-solid fa-list-ul"></i> 목록 뷰
+                                </button>
+                                <button class="view-mode-btn" data-mode="station" id="btn-view-mode-station">
+                                    <i class="fa-solid fa-sitemap"></i> 지점별 뷰
+                                </button>
+                            </div>
+                            <div style="font-size:12px; color:var(--text-secondary);">
+                                <i class="fa-solid fa-circle-info"></i>
+                                지점별 뷰: 국가 → 지점 → 심사 항목 계층 조회
+                            </div>
+                        </div>
+
+                        <!-- 국가/지점 드롭다운 필터 (지점별 뷰 모드에서 표시) -->
+                        <div class="station-filter-row" id="station-filter-row" style="display:none;">
+                            <i class="fa-solid fa-earth-asia" style="color:var(--accent-blue);"></i>
+                            <label for="station-country-select"><i class="fa-solid fa-flag"></i> 국가:</label>
+                            <select id="station-country-select" class="select-field">
+                                <option value="all">전체 국가</option>
+                            </select>
+                            <label for="station-code-select" style="margin-left:8px;"><i class="fa-solid fa-location-dot"></i> 지점(STATION):</label>
+                            <select id="station-code-select" class="select-field">
+                                <option value="all">전체 지점</option>
+                            </select>
+                            <span class="station-filter-hint">
+                                <i class="fa-solid fa-arrow-down"></i> 지점 선택 시 해당 지점 심사 계획 일괄 표시
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- ④-A 목록 뷰: 기존 테이블 -->
+                    <div id="year-list-view-section">
+                        <div class="section-card">
+                            <div class="section-header">
+                                <h2><i class="fa-solid fa-list-check"></i> <span id="year-view-title">2026년</span> 심사 계획 <span class="badge badge-accent" id="year-view-count-badge">0건</span></h2>
+                                <!-- 카테고리 색상 범례 -->
+                                <div class="cat-summary-bar" id="cat-summary-bar" style="margin-top:10px;"></div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="min-width:140px;">심사 분야</th>
+                                            <th>운항</th>
+                                            <th>심사 대상</th>
+                                            <th>구분</th>
+                                            <th>예정 월</th>
+                                            <th>예정 날짜</th>
+                                            <th>담당자</th>
+                                            <th>상태</th>
+                                            <th>비고</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="year-view-table-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ④-B 지점별 뷰: 계층 그룹 카드 -->
+                    <div id="year-station-view-section" style="display:none;">
+                        <div id="station-group-view">
+                            <!-- JS로 동적 렌더링 -->
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- 3) Monthly 12-Grid Calendar -->
+                <div class="calendar-grid" id="calendar-grid-container" style="display:none;"></div>
+            </section>
+
+
+
+            <!-- TAB 3: LIST VIEW -->
+            <section id="tab-list" class="tab-pane">
+                <div class="filter-bar section-card">
+                    <div class="filter-group">
+                        <label for="filter-month-select"><i class="fa-solid fa-filter"></i> 월 선택</label>
+                        <select id="filter-month-select" class="select-field">
+                            <option value="1">1월</option>
+                            <option value="2">2월</option>
+                            <option value="3">3월</option>
+                            <option value="4">4월</option>
+                            <option value="5">5월</option>
+                            <option value="6">6월</option>
+                            <option value="7">7월</option>
+                            <option value="8" selected>8월</option>
+                            <option value="9">9월</option>
+                            <option value="10">10월</option>
+                            <option value="11">11월</option>
+                            <option value="12">12월</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="filter-type-select"><i class="fa-solid fa-magnifying-glass"></i> 구분 필터</label>
+                        <select id="filter-type-select" class="select-field">
+                            <option value="all">전체 심사</option>
+                            <option value="직접">직접 심사만</option>
+                            <option value="간접">간접 심사만</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="list-section section-card">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>유형</th>
+                                    <th>상태</th>
+                                    <th>심사 대상</th>
+                                    <th>구분</th>
+                                    <th>예정 날짜</th>
+                                    <th>담당자</th>
+                                    <th>진행 여부</th>
+                                </tr>
+                            </thead>
+                            <tbody id="list-table-body">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                </div>
+            </section>
+
+            <!-- TAB 4: TARGET MANAGEMENT -->
+            <section id="tab-manage" class="tab-pane">
+                <div class="filter-bar section-card manage-filter-bar">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <h2 style="margin:0; font-size:17px;"><i class="fa-solid fa-database" style="color:var(--accent-blue);"></i> 심사 대상 관리 (<span id="target-count-lbl">0</span>개)</h2>
+                    </div>
+                    <div class="manage-filters-wrap">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <label for="manage-filter-category" style="font-size:12px; color:var(--text-secondary);"><i class="fa-solid fa-tags"></i> 분야:</label>
+                            <select id="manage-filter-category" class="select-field" style="padding:6px 10px; font-size:13px; min-width:110px;">
+                                <option value="all">전체 분야</option>
+                                <option value="국내주재">국내 주재정비</option>
+                                <option value="해외주재">해외 주재정비</option>
+                                <option value="국내운항">국내 운항정비 위탁</option>
+                                <option value="해외운항">해외 운항정비 위탁</option>
+                                <option value="중정비">항공기 중정비 위탁</option>
+                                <option value="엔진">엔진 중정비 위탁</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <label for="manage-filter-aircraft" style="font-size:12px; color:var(--accent-blue);"><i class="fa-solid fa-plane"></i> 기종:</label>
+                            <select id="manage-filter-aircraft" class="select-field" style="padding:6px 10px; font-size:13px; min-width:105px;">
+                                <option value="all">전체 기종</option>
+                                <option value="B738">B738</option>
+                                <option value="B38M">B38M</option>
+                                <option value="A332">A332</option>
+                                <option value="A333">A333</option>
+                                <option value="A339">A339</option>
+                                <option value="B773">B773</option>
+                                <option value="na">미지정(N/A)</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <label for="manage-filter-engine" style="font-size:12px; color:var(--accent-orange);"><i class="fa-solid fa-fire-flame-curved"></i> 엔진:</label>
+                            <select id="manage-filter-engine" class="select-field" style="padding:6px 10px; font-size:13px; min-width:115px;">
+                                <option value="all">전체 엔진</option>
+                                <option value="CFM56">CFM56</option>
+                                <option value="LEAP-1B">LEAP-1B</option>
+                                <option value="PW4100">PW4100</option>
+                                <option value="TRENT700">TRENT700</option>
+                                <option value="TRENT7000">TRENT7000</option>
+                                <option value="GE90">GE90</option>
+                                <option value="na">미지정(N/A)</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <input type="text" id="manage-search-input" class="input-field" placeholder="지점/업체명 검색..." style="padding:6px 10px; font-size:13px; width:140px;">
+                        </div>
+                        <button class="btn btn-primary" id="btn-open-target-modal" style="padding:8px 14px; font-size:13px;">
+                            <i class="fa-solid fa-plus"></i> 신규 대상 등록
+                        </button>
+                    </div>
+                </div>
+                <div class="list-section section-card">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:45px;">ID</th>
+                                    <th style="min-width:130px;">심사 분야(카테고리)</th>
+                                    <th style="min-width:150px;">심사 대상명</th>
+                                    <th style="min-width:120px;"><i class="fa-solid fa-plane" style="color:var(--accent-blue);"></i> 적용 기종</th>
+                                    <th style="min-width:130px;"><i class="fa-solid fa-fire-flame-curved" style="color:var(--accent-orange);"></i> 적용 엔진</th>
+                                    <th style="width:85px;">운항 상태</th>
+                                    <th style="width:95px;">기본 주기</th>
+                                    <th style="text-align: center; width:130px;">관리 액션</th>
+                                </tr>
+                            </thead>
+                            <tbody id="manage-table-body">
+                                <!-- Dynamic target rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: AUDITOR MANAGEMENT -->
+            <section id="tab-auditors" class="tab-pane">
+
+                <!-- 통계 카드 -->
+                <div class="stats-grid" style="margin-bottom:20px;">
+                    <div class="stat-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="stat-icon" style="color:var(--accent-blue);"><i class="fa-solid fa-users"></i></div>
+                        <div class="stat-info">
+                            <h3>총 심사원</h3>
+                            <p class="stat-val" id="auditor-stat-total">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card" style="border-left: 4px solid #f59e0b;">
+                        <div class="stat-icon" style="color:#f59e0b;"><i class="fa-solid fa-graduation-cap"></i></div>
+                        <div class="stat-info">
+                            <h3>교육 임박/만료</h3>
+                            <p class="stat-val" id="auditor-stat-train">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card" style="border-left: 4px solid #ef4444;">
+                        <div class="stat-icon" style="color:#ef4444;"><i class="fa-solid fa-clipboard-check"></i></div>
+                        <div class="stat-info">
+                            <h3>평가 임박/만료</h3>
+                            <p class="stat-val" id="auditor-stat-eval">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 필터 / 액션 바 -->
+                <div class="filter-bar section-card" style="justify-content:space-between; align-items:center; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <h2 style="margin:0; font-size:16px;"><i class="fa-solid fa-id-badge" style="color:var(--accent-blue);"></i> 품질심사원 자격 · 교육 현황 <span class="badge badge-accent" id="auditor-count-badge">0명</span></h2>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="map-filter-btn active" id="btn-auditor-filter-all" onclick="setAuditorFilter('all')"><i class="fa-solid fa-users"></i> 전체</button>
+                        <button class="map-filter-btn" id="btn-auditor-filter-action" onclick="setAuditorFilter('action')"><i class="fa-solid fa-triangle-exclamation"></i> 조치 필요 인원만</button>
+                        <button class="btn btn-primary" id="btn-open-auditor-modal">
+                            <i class="fa-solid fa-plus"></i> 신규 심사원 등록
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 심사원 목록 테이블 -->
+                <div class="list-section section-card">
+                    <div class="table-responsive">
+                        <table class="data-table" id="auditor-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">No.</th>
+                                    <th>성명</th>
+                                    <th>직급/부서</th>
+                                    <th>사번</th>
+                                    <th>종합 상태</th>
+                                    <th>최근 보수교육</th>
+                                    <th>차기 보수교육 만료</th>
+                                    <th>교육 상태</th>
+                                    <th>최근 정기평가</th>
+                                    <th>차기 평가 만료</th>
+                                    <th>평가 상태</th>
+                                    <th style="text-align:center;">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auditor-table-body">
+                                <!-- 동적 렌더링 -->
+                            </tbody>
+                        </table>
+            <!-- TAB 6: MY PAGE (심사원 전용 마이페이지) -->
+            <section id="tab-mypage" class="tab-pane">
+                <div class="mypage-container">
+                    <!-- My Profile & Status Banner -->
+                    <div class="mypage-profile-card">
+                        <div class="mypage-avatar">
+                            <i class="fa-solid fa-user-tie"></i>
+                        </div>
+                        <div class="mypage-user-info">
+                            <div class="mypage-badge-row">
+                                <span class="badge badge-accent" id="my-role-badge">심사원</span>
+                                <span class="badge badge-outline" id="my-dept-badge">정비품질보증팀</span>
+                                <span class="badge badge-secondary" id="my-empid-badge">사번: T250286</span>
+                            </div>
+                            <h2 id="my-name-display">심사원 이름</h2>
+                            <p class="mypage-summary-desc" id="my-summary-desc">자격 및 배정 일정을 실시간으로 확인하고 관리할 수 있습니다.</p>
+                        </div>
+                        <div class="mypage-quick-stats">
+                            <div class="my-stat-box">
+                                <span class="my-stat-label">올해 배정 심사</span>
+                                <span class="my-stat-value" id="my-total-audit-count">0<small>건</small></span>
+                            </div>
+                            <div class="my-stat-box">
+                                <span class="my-stat-label">직접 심사</span>
+                                <span class="my-stat-value text-blue" id="my-direct-audit-count">0<small>건</small></span>
+                            </div>
+                            <div class="my-stat-box">
+                                <span class="my-stat-label">간접 심사</span>
+                                <span class="my-stat-value text-amber" id="my-indirect-audit-count">0<small>건</small></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Qualification Status Alerts -->
+                    <div class="mypage-alert-grid">
+                        <div class="qual-card" id="my-refresher-card">
+                            <div class="qual-card-icon"><i class="fa-solid fa-graduation-cap"></i></div>
+                            <div class="qual-card-content">
+                                <div class="qual-card-title">보수교육 만료일 관리</div>
+                                <div class="qual-card-due" id="my-refresher-due-display">만료예정일: -</div>
+                                <div class="qual-card-dday" id="my-refresher-dday-badge">D-Day 계산중</div>
+                            </div>
+                        </div>
+                        <div class="qual-card" id="my-eval-card">
+                            <div class="qual-card-icon"><i class="fa-solid fa-clipboard-check"></i></div>
+                            <div class="qual-card-content">
+                                <div class="qual-card-title">정기평가 만료일 관리</div>
+                                <div class="qual-card-due" id="my-eval-due-display">만료예정일: -</div>
+                                <div class="qual-card-dday" id="my-eval-dday-badge">D-Day 계산중</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Assigned Audit Schedule List -->
+                    <div class="section-card mypage-schedule-card">
+                        <div class="section-card-header">
+                            <div>
+                                <h2><i class="fa-solid fa-calendar-check"></i> 내가 배정된 심사 일정 목록</h2>
+                                <p class="section-desc">현재 선택된 연도(<span class="current-year-label">2026</span>년)에 본인 이름 또는 사번으로 배정된 심사 목록입니다.</p>
+                            </div>
+                            <div class="table-actions">
+                                <button class="btn btn-secondary btn-sm" id="btn-refresh-my-schedule"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>예정일</th>
+                                        <th>심사 대상(Station)</th>
+                                        <th>분야</th>
+                                        <th>구분</th>
+                                        <th>운항 상태</th>
+                                        <th>진행 상태</th>
+                                        <th>비고 및 특이사항</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="my-schedule-table-body">
+                                    <tr>
+                                        <td colspan="7" class="text-center py-4">배정된 심사 일정을 불러오는 중입니다...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 7: USERS MANAGEMENT (관리자 전용 계정/권한 관리) -->
+            <section id="tab-users" class="tab-pane">
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <div>
+                            <h2><i class="fa-solid fa-users-gear"></i> 계정 및 권한 관리</h2>
+                            <p class="section-desc">시스템 관리자 및 심사원 로그인 계정을 조회하고 비밀번호를 초기화할 수 있습니다.</p>
+                        </div>
+                        <div class="table-actions">
+                            <span class="badge badge-accent" id="user-count-badge">총 0명</span>
+                            <button class="btn btn-secondary btn-sm" id="btn-refresh-users"><i class="fa-solid fa-rotate"></i> 새로고침</button>
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>번호</th>
+                                    <th>아이디 (사번)</th>
+                                    <th>사용자명</th>
+                                    <th>소속 부서</th>
+                                    <th>권한</th>
+                                    <th>자격 정보</th>
+                                    <th>등록일</th>
+                                    <th style="text-align:center;">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body">
+                                <!-- 동적 렌더링 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODAL: Audit Details Popup -->
+    <div class="modal" id="audit-detail-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>심사 세부 계획 설정</h2>
+                <button class="close-btn" id="btn-close-detail-modal">&times;</button>
+            </div>
+            <form id="audit-detail-form">
+                <input type="hidden" id="detail-id">
+                <input type="hidden" id="detail-target-id">
+                <input type="hidden" id="detail-year">
+                
+                <div class="form-group">
+                    <label>심사 대상명</label>
+                    <input type="text" id="detail-station-name" class="input-field" readonly>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label>유형</label>
+                        <input type="text" id="detail-category" class="input-field" readonly>
+                    </div>
+                    <div class="form-group col-6">
+                        <label>운항 상태</label>
+                        <input type="text" id="detail-op-status" class="input-field" readonly>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label>심사 구분</label>
+                        <select id="detail-audit-type" class="select-field">
+                            <option value="직접">직접 심사 (●)</option>
+                            <option value="간접">간접 심사 (◎)</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-6">
+                        <label>심사 상태</label>
+                        <select id="detail-status" class="select-field">
+                            <option value="계획">계획</option>
+                            <option value="완료">완료</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label>심사 예정일</label>
+                        <input type="date" id="detail-scheduled-date" class="input-field" required>
+                    </div>
+                    <div class="form-group col-6">
+                        <label>담당자</label>
+                        <input type="text" id="detail-auditor" class="input-field" placeholder="담당자 이름 입력">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>비고 및 상세 내용</label>
+                    <textarea id="detail-remarks" class="textarea-field" rows="3" placeholder="의견이나 연기/추가 등 메모 입력"></textarea>
+                </div>
+                <div style="background: rgba(88, 166, 255, 0.08); border: 1px solid rgba(88, 166, 255, 0.2); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px; color: var(--accent-blue);">
+                    <i class="fa-solid fa-arrows-rotate"></i> <strong>동적 롤링(Roll-over) 안내:</strong> 이 시점의 심사 구분을 저장하면 이후 2026~2030년 인터벌이 자동으로 다시 계산(Reset & Roll-over)되어 반영됩니다.
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-detail-modal">취소</button>
+                    <button type="submit" class="btn btn-primary">저장 및 롤링 적용</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Add Event Popup -->
+    <div class="modal" id="event-add-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>신규 지점 / 기종 추가 이벤트 등록</h2>
+                <button class="close-btn" id="btn-close-event-modal">&times;</button>
+            </div>
+            <form id="event-add-form">
+                <div class="form-group">
+                    <label for="event-target-select">대상 업체 / 지점 선택</label>
+                    <select id="event-target-select" class="select-field" required>
+                        <!-- Options dynamically loaded -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="event-year-select">이벤트 적용 연도</label>
+                    <select id="event-year-select" class="select-field" required>
+                        <option value="2026">2026년</option>
+                        <option value="2027">2027년</option>
+                        <option value="2028">2028년</option>
+                        <option value="2029">2029년</option>
+                        <option value="2030">2030년</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="event-detail">이벤트 상세 정보</label>
+                    <input type="text" id="event-detail" class="input-field" placeholder="예: B737-8 MAX 기종 추가 위탁정비" required>
+                    <small class="form-help">등록 시 해당 연도에 '간접 심사'가 강제 배정되며, 이후 주기(2년)가 자동으로 리셋됩니다.</small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-event-modal">취소</button>
+                    <button type="submit" class="btn btn-primary">이벤트 적용 및 리셋</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Target Management (Add / Edit) -->
+    <div class="modal" id="target-manage-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="target-modal-title">신규 심사 대상 등록</h2>
+                <button class="close-btn" id="btn-close-target-modal">&times;</button>
+            </div>
+            <form id="target-manage-form">
+                <input type="hidden" id="target-edit-id">
+                
+                <div class="form-group">
+                    <label for="target-name-input">심사 대상명 (Station)</label>
+                    <input type="text" id="target-name-input" class="input-field" placeholder="예: HAECO (XMN 샤먼)" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="target-category-select">심사 분야</label>
+                        <select id="target-category-select" class="select-field" required>
+                            <option value="내부">내부</option>
+                            <option value="국내운항지점">국내운항지점</option>
+                            <option value="해외운항지점">해외운항지점</option>
+                            <option value="완전위탁업체">완전위탁업체</option>
+                            <option value="엔진정비업체">엔진정비업체</option>
+                            <option value="중정비업체">중정비업체</option>
+                            <option value="국내업체">국내업체</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="target-status-select">운항 상태</label>
+                        <select id="target-status-select" class="select-field" required>
+                            <option value="운항">운항</option>
+                            <option value="비운항">비운항</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="target-interval-input">기본 주기 (년)</label>
+                    <input type="number" id="target-interval-input" class="input-field" value="2" min="1" required>
+                </div>
+
+                <!-- 적용 항공기 기종 (Multi-select) -->
+                <div class="type-select-box">
+                    <div class="type-select-header">
+                        <label><i class="fa-solid fa-plane" style="color:var(--accent-blue);"></i> 적용 항공기 기종 (다중 선택)</label>
+                        <div class="type-quick-actions">
+                            <button type="button" class="btn-quick-select" id="btn-ac-select-all">전체 선택</button>
+                            <button type="button" class="btn-quick-select" id="btn-ac-clear-all">선택 해제</button>
+                        </div>
+                    </div>
+                    <div class="type-tags-grid" id="target-ac-tags-grid">
+                        <button type="button" class="type-check-btn ac-type" data-val="B738"><i class="fa-regular fa-square"></i> B738</button>
+                        <button type="button" class="type-check-btn ac-type" data-val="B38M"><i class="fa-regular fa-square"></i> B38M</button>
+                        <button type="button" class="type-check-btn ac-type" data-val="A332"><i class="fa-regular fa-square"></i> A332</button>
+                        <button type="button" class="type-check-btn ac-type" data-val="A333"><i class="fa-regular fa-square"></i> A333</button>
+                        <button type="button" class="type-check-btn ac-type" data-val="A339"><i class="fa-regular fa-square"></i> A339</button>
+                        <button type="button" class="type-check-btn ac-type" data-val="B773"><i class="fa-regular fa-square"></i> B773</button>
+                    </div>
+                </div>
+
+                <!-- 적용 엔진 형식 (Multi-select) -->
+                <div class="type-select-box">
+                    <div class="type-select-header">
+                        <label><i class="fa-solid fa-fire-flame-curved" style="color:var(--accent-orange);"></i> 적용 엔진 모델 (다중 선택)</label>
+                        <div class="type-quick-actions">
+                            <button type="button" class="btn-quick-select" id="btn-eng-select-all">전체 선택</button>
+                            <button type="button" class="btn-quick-select" id="btn-eng-clear-all">선택 해제</button>
+                        </div>
+                    </div>
+                    <div class="type-tags-grid" id="target-eng-tags-grid">
+                        <button type="button" class="type-check-btn eng-type" data-val="CFM56"><i class="fa-regular fa-square"></i> CFM56</button>
+                        <button type="button" class="type-check-btn eng-type" data-val="LEAP-1B"><i class="fa-regular fa-square"></i> LEAP-1B</button>
+                        <button type="button" class="type-check-btn eng-type" data-val="PW4100"><i class="fa-regular fa-square"></i> PW4100</button>
+                        <button type="button" class="type-check-btn eng-type" data-val="TRENT700"><i class="fa-regular fa-square"></i> TRENT700</button>
+                        <button type="button" class="type-check-btn eng-type" data-val="TRENT7000"><i class="fa-regular fa-square"></i> TRENT7000</button>
+                        <button type="button" class="type-check-btn eng-type" data-val="GE90"><i class="fa-regular fa-square"></i> GE90</button>
+                    </div>
+                </div>
+                
+                <!-- 신규 추가 시에만 최초 세팅할 2026년도 계획값 (수정 시에는 숨김) -->
+                <div id="first-audit-fields">
+                    <hr style="border:0; border-top:1px solid var(--card-border); margin:16px 0;">
+                    <h3 style="font-size:14px; margin-bottom:8px; color:var(--accent-blue);">최초 2026년 심사 설정</h3>
+                    <div class="form-row">
+                        <div class="form-group col-6">
+                            <label for="target-first-type">최초 심사 구분</label>
+                            <select id="target-first-type" class="select-field">
+                                <option value="직접">직접 심사 (●)</option>
+                                <option value="간접">간접 심사 (◎)</option>
+                             </select>
+                        </div>
+                        <div class="form-group col-6">
+                            <label for="target-first-date">최초 심사 예정일</label>
+                            <input type="date" id="target-first-date" class="input-field" value="2026-06-01">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="target-first-auditor">최초 담당자</label>
+                        <input type="text" id="target-first-auditor" class="input-field" placeholder="담당자 이름 입력">
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-target-modal">취소</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-target">등록하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script src="/static/main.js"></script>
+
+    <!-- MODAL: Auditor Alert Popup (자동 팝업) -->
+    <div class="modal" id="auditor-alert-modal">
+        <div class="modal-content" style="max-width:620px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #f59e0b, #ef4444); border-radius: 12px 12px 0 0;">
+                <h2 style="color:#fff;"><i class="fa-solid fa-bell"></i> 심사원 자격 갱신 알림</h2>
+                <button class="close-btn" id="btn-close-auditor-alert" style="color:#fff;">&#x2715;</button>
+            </div>
+            <div style="padding:20px 24px;">
+                <p style="font-size:13px; color:var(--text-secondary); margin-bottom:16px;">
+                    <i class="fa-solid fa-circle-info" style="color:var(--accent-blue);"></i>
+                    아래 심사원의 <strong>보수교육</strong> 또는 <strong>정기평가</strong> 만료일이 <strong>6개월 이내</strong>로 도래했습니다. 교육/평가 계획을 수립하세요.
+                </p>
+                <div id="auditor-alert-list" style="display:flex; flex-direction:column; gap:10px; max-height:360px; overflow-y:auto;"></div>
+                <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px;">
+                    <button class="btn btn-secondary" id="btn-goto-auditor-tab"><i class="fa-solid fa-id-badge"></i> 심사원 관리로 이동</button>
+                    <button class="btn btn-primary" id="btn-close-auditor-alert2">확인</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Auditor Add / Edit -->
+    <div class="modal" id="auditor-manage-modal">
+        <div class="modal-content" style="max-width:680px;">
+            <div class="modal-header">
+                <h2 id="auditor-modal-title"><i class="fa-solid fa-id-badge"></i> 신규 심사원 등록</h2>
+                <button class="close-btn" id="btn-close-auditor-modal">&#x2715;</button>
+            </div>
+            <form id="auditor-manage-form" style="max-height:80vh; overflow-y:auto; padding-right:4px;">
+                <input type="hidden" id="auditor-edit-id">
+
+                <!-- 기본 정보 -->
+                <div style="font-size:12px; font-weight:700; color:var(--accent-blue); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">
+                    <i class="fa-solid fa-user"></i> 기본 정보
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="auditor-name-kr">성명 (한글) <span style="color:#ef4444;">*</span></label>
+                        <input type="text" id="auditor-name-kr" class="input-field" placeholder="예: 홍길동" required>
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="auditor-name-en">성명 (영문)</label>
+                        <input type="text" id="auditor-name-en" class="input-field" placeholder="예: HONG GIL DONG">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="auditor-dept">직급/부서</label>
+                        <input type="text" id="auditor-dept" class="input-field" placeholder="예: Manager">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="auditor-emp-id">사번</label>
+                        <input type="text" id="auditor-emp-id" class="input-field" placeholder="예: T180261">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="auditor-contact">연락처</label>
+                        <input type="text" id="auditor-contact" class="input-field" placeholder="예: 010-1234-5678">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="auditor-qual">자격 종류</label>
+                        <input type="text" id="auditor-qual" class="input-field" placeholder="예: 티웨이항공 품질심사원 양성">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="auditor-cert">인정서 번호</label>
+                    <input type="text" id="auditor-cert" class="input-field" placeholder="예: 품질 AM2021-326">
+                </div>
+
+                <hr style="border:0; border-top:1px solid var(--card-border); margin:16px 0;">
+
+                <!-- 교육 이력 -->
+                <div style="font-size:12px; font-weight:700; color:#f59e0b; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">
+                    <i class="fa-solid fa-graduation-cap"></i> 교육 이력 (보수교육 주기: 2년)
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="auditor-init-train">초도교육 이수일</label>
+                        <input type="date" id="auditor-init-train" class="input-field">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="auditor-last-refresh">최근 보수교육 이수일</label>
+                        <input type="date" id="auditor-last-refresh" class="input-field" oninput="previewRefresherDue()">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>차기 보수교육 만료예정일 <span style="font-size:11px; color:var(--text-secondary);">(자동계산: 최근 보수교육일 또는 초도교육일 + 2년)</span></label>
+                    <div id="refresher-due-preview" style="padding:10px 14px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:8px; font-weight:600; color:#f59e0b; font-size:14px;">
+                        — 날짜 입력 후 자동 표시됩니다 —
+                    </div>
+                </div>
+
+                <hr style="border:0; border-top:1px solid var(--card-border); margin:16px 0;">
+
+                <!-- 평가 이력 -->
+                <div style="font-size:12px; font-weight:700; color:#8b5cf6; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">
+                    <i class="fa-solid fa-clipboard-check"></i> 평가 이력 (정기평가 주기: 2년)
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="auditor-init-eval">초도평가 실시일</label>
+                        <input type="date" id="auditor-init-eval" class="input-field">
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="auditor-last-eval">최근 정기평가 실시일</label>
+                        <input type="date" id="auditor-last-eval" class="input-field" oninput="previewEvalDue()">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>차기 평가 만료예정일 <span style="font-size:11px; color:var(--text-secondary);">(자동계산: 최근 평가일 또는 초도평가일 + 2년)</span></label>
+                    <div id="eval-due-preview" style="padding:10px 14px; background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.3); border-radius:8px; font-weight:600; color:#8b5cf6; font-size:14px;">
+                        — 날짜 입력 후 자동 표시됩니다 —
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="auditor-remarks">비고</label>
+                    <textarea id="auditor-remarks" class="textarea-field" rows="2" placeholder="OJT 미완료, 특이사항 등"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-auditor-modal">취소</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-auditor">등록하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Login Modal -->
+    <div class="modal" id="login-modal">
+        <div class="modal-content modal-auth">
+            <div class="modal-header">
+                <div class="auth-modal-title-wrap">
+                    <div class="auth-icon-badge"><i class="fa-solid fa-shield-halved"></i></div>
+                    <div>
+                        <h2>품질심사 시스템 로그인</h2>
+                        <p class="modal-sub">사번(또는 관리자 ID)과 비밀번호로 로그인하세요.</p>
+                    </div>
+                </div>
+                <button class="close-btn" id="btn-close-login-modal">&times;</button>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-username"><i class="fa-solid fa-id-card"></i> 사번 또는 관리자 아이디</label>
+                    <input type="text" id="login-username" class="input-field" placeholder="예: admin 또는 T250286" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label for="login-password"><i class="fa-solid fa-lock"></i> 비밀번호</label>
+                    <input type="password" id="login-password" class="input-field" placeholder="비밀번호 입력 (기본: 1234 / admin1234)" required>
+                </div>
+
+                <div class="quick-login-box">
+                    <div class="quick-login-title"><i class="fa-solid fa-bolt"></i> 빠른 테스트 로그인</div>
+                    <div class="quick-login-buttons">
+                        <button type="button" class="btn-quick-login btn-quick-admin" onclick="quickLogin('admin', 'admin1234')">
+                            <i class="fa-solid fa-user-shield"></i> 관리자 (admin)
+                        </button>
+                        <button type="button" class="btn-quick-login" onclick="quickLogin('T250286', '1234')">
+                            <i class="fa-solid fa-user"></i> 심사원 1
+                        </button>
+                        <button type="button" class="btn-quick-login" onclick="quickLogin('T240952', '1234')">
+                            <i class="fa-solid fa-user"></i> 심사원 2
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-actions" style="margin-top:20px;">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-login">닫기</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-login">
+                        <i class="fa-solid fa-right-to-bracket"></i> 로그인
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Change Password Modal -->
+    <div class="modal" id="change-password-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-key"></i> 비밀번호 변경</h2>
+                <button class="close-btn" id="btn-close-password-modal">&times;</button>
+            </div>
+            <form id="change-password-form">
+                <div class="form-group">
+                    <label for="pw-current">현재 비밀번호</label>
+                    <input type="password" id="pw-current" class="input-field" placeholder="현재 비밀번호를 입력하세요" required>
+                </div>
+                <div class="form-group">
+                    <label for="pw-new">새 비밀번호 (최소 4자 이상)</label>
+                    <input type="password" id="pw-new" class="input-field" placeholder="새로운 비밀번호를 입력하세요" required minlength="4">
+                </div>
+                <div class="form-group">
+                    <label for="pw-new-confirm">새 비밀번호 확인</label>
+                    <input type="password" id="pw-new-confirm" class="input-field" placeholder="새로운 비밀번호를 한 번 더 입력하세요" required minlength="4">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-password-modal">취소</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-password">변경하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Application Script -->
+    <script src="/static/main.js"></script>
+</body>
+</html>
