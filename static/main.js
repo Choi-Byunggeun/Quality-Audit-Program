@@ -1215,7 +1215,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         matrixTableBody.innerHTML = "";
 
-        multiSchedule.forEach(item => {
+        multiSchedule.forEach((item, idx) => {
             const tr = document.createElement("tr");
             if (item.operation_status === "비운항") {
                 tr.style.opacity = "0.55";
@@ -1271,7 +1271,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             tr.innerHTML = `
-                <td>${item.id}</td>
+                <td>${idx + 1}</td>
                 <td><span class="badge badge-blue" style="font-size:11px;">${item.category}</span></td>
                 <td><span class="badge ${item.operation_status === '운항' ? 'badge-green' : 'badge-orange'}" style="font-size:11px;">${item.operation_status}</span></td>
                 <td style="font-weight:600;">${item.station_name}</td>
@@ -1995,6 +1995,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         
         if (res && res.status === "success") {
+            multiYearScheduleMap = {};
             closeDetailModal();
             loadTabData();
         }
@@ -2047,6 +2048,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         
         if (res && res.status === "success") {
+            multiYearScheduleMap = {};
             closeEventModal();
             alert("신규 이벤트가 성공적으로 등록되었으며 2026~2030년 롤링 스케줄이 자동 갱신(Reset & Roll-over)되었습니다.");
             loadTabData();
@@ -2209,12 +2211,12 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        filtered.forEach(target => {
+        filtered.forEach((target, idx) => {
             const tr = document.createElement("tr");
             const intervalText = target.base_interval === 1 ? "1년(매년직접)" : "2년(교차)";
             
             tr.innerHTML = `
-                <td>${target.id}</td>
+                <td>${idx + 1}</td>
                 <td>${getCategoryBadgeHtml(target.category)}</td>
                 <td style="font-weight:600;">${target.station_name}</td>
                 <td>${formatAircraftBadges(target.aircraft_types)}</td>
