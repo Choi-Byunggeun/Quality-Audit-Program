@@ -746,8 +746,18 @@
                 <div class="filter-bar section-card manage-filter-bar">
                     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                         <h2 style="margin:0; font-size:17px;"><i class="fa-solid fa-database" style="color:var(--accent-blue);"></i> 심사 대상 관리 (<span id="target-count-lbl">0</span>개)</h2>
+                        <span class="badge badge-green" style="font-size:11px; padding:4px 8px;">운항 <strong id="target-op-active-lbl">0</strong></span>
+                        <span class="badge badge-orange" style="font-size:11px; padding:4px 8px;">비운항 <strong id="target-op-inactive-lbl">0</strong></span>
                     </div>
                     <div class="manage-filters-wrap">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <label for="manage-filter-status" style="font-size:12px; color:var(--text-secondary);"><i class="fa-solid fa-signal"></i> 상태:</label>
+                            <select id="manage-filter-status" class="select-field" style="padding:6px 10px; font-size:13px; min-width:95px;">
+                                <option value="all">전체 상태</option>
+                                <option value="운항">운항</option>
+                                <option value="비운항">비운항</option>
+                            </select>
+                        </div>
                         <div style="display:flex; align-items:center; gap:6px;">
                             <label for="manage-filter-category" style="font-size:12px; color:var(--text-secondary);"><i class="fa-solid fa-tags"></i> 분야:</label>
                             <select id="manage-filter-category" class="select-field" style="padding:6px 10px; font-size:13px; min-width:110px;">

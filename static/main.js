@@ -166,6 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "TAS": { name: "타슈켄트", country: "우즈베키스탄", continent: "아시아", lat: 41.25, lon: 69.28 },
         "DAC": { name: "다카", country: "방글라데시", continent: "아시아", lat: 23.84, lon: 90.39 },
         "AUH": { name: "아부다비", country: "UAE", continent: "중동/기타", lat: 24.43, lon: 54.65 },
+        "CAI": { name: "카이로", country: "이집트", continent: "중동/기타", lat: 30.12, lon: 31.40 },
 
         // 유럽
         "ZAG": { name: "자그레브", country: "크로아티아", continent: "유럽", lat: 45.74, lon: 16.06 },
@@ -175,6 +176,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "FRA": { name: "프랑크푸르트", country: "독일", continent: "유럽", lat: 50.03, lon: 8.57 },
         "HAM": { name: "함부르크", country: "독일", continent: "유럽", lat: 53.63, lon: 9.98 },
         "BER": { name: "베를린", country: "독일", continent: "유럽", lat: 52.36, lon: 13.50 },
+        "HEL": { name: "헬싱키", country: "핀란드", continent: "유럽", lat: 60.31, lon: 24.96 },
         "N3": { name: "아른슈타트(N3)", country: "독일", continent: "유럽", lat: 50.84, lon: 10.98 },
         "CWL": { name: "웨일스(GE)", country: "영국", continent: "유럽", lat: 51.39, lon: -3.34 },
 
@@ -270,25 +272,34 @@ document.addEventListener("DOMContentLoaded", () => {
         if (stationName.includes("위니펙") || lower.includes("standard aero") || lower.includes("standardaero")) {
             return { ...STATION_DB["YWG"], code: "YWG" };
         }
-        if (upper.includes("WALES") || stationName.includes("웨일스") || upper.includes("GE ENGINE")) {
+        if (upper.includes("WALES") || stationName.includes("웨일스") || upper.includes("GE ENGINE") || upper.includes("GE AIRCRAFT ENGINE")) {
             return { ...STATION_DB["CWL"], code: "CWL" };
         }
         if (lower.includes("lufthansa")) {
             return { ...STATION_DB["HAM"], code: "HAM" };
         }
-        if (lower.includes("st engineering")) {
+        if (upper.includes("N3 ENGINE")) {
+            return { ...STATION_DB["N3"], code: "N3" };
+        }
+        if (upper.includes("XIAMEN") || upper.includes("XIANMEN") || stationName.includes("샤먼")) {
+            return { ...STATION_DB["XMN"], code: "XMN" };
+        }
+        if (lower.includes("st engineering") || (upper.includes("ST AEROSPACE") && upper.includes("SIN"))) {
             return { ...STATION_DB["SIN"], code: "SIN" };
         }
-        if (upper.includes("XIAMEN")) {
-            return { ...STATION_DB["XMN"], code: "XMN" };
+        if (stationName.includes("베이징")) {
+            return { ...STATION_DB["PKX"], code: "PKX" };
         }
         if (lower.includes("sharp technics") || upper.includes("GE ON WINGS")) {
             return { ...STATION_DB["ICN"], code: "ICN" };
         }
-        if (lower.includes("koreanair") && stationName.includes("중정비")) {
+        if ((lower.includes("koreanair") || stationName.includes("대한항공")) && stationName.includes("중정비")) {
             return { ...STATION_DB["PUS"], code: "PUS" };
         }
-        if (lower.includes("koreanair")) {
+        if ((lower.includes("koreanair") || stationName.includes("대한항공")) && stationName.includes("CJU")) {
+            return { ...STATION_DB["CJU"], code: "CJU" };
+        }
+        if (lower.includes("koreanair") || stationName.includes("대한항공")) {
             return { ...STATION_DB["ICN"], code: "ICN" };
         }
 
@@ -694,7 +705,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (allTargets.length === 0) {
                 allTargets = await apiFetch("/api/targets");
             }
-            targetsToDisplay = (allTargets || []).map(t => {
+            targetsToDisplay = (allTargets || []).filter(t => t.operation_status === "운항").map(t => {
                 const schedForYear = (multiYearScheduleMap[t.id] || {})[selectedYear];
                 return {
                     target_id: t.id,
@@ -706,7 +717,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     symbol: schedForYear ? schedForYear.symbol : "●",
                     scheduled_date: schedForYear ? schedForYear.scheduled_date : "-",
                     auditor: schedForYear ? schedForYear.auditor : "",
-                    status: schedForYear ? schedForYear.status : "등록",
+                    status: schedForYear ? schedForYear.status : "운항중",
                     remarks: schedForYear ? schedForYear.remarks : ""
                 };
             });
@@ -2148,16 +2159,28 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    const manageFilterStatus = document.getElementById("manage-filter-status");
+    const targetOpActiveLbl = document.getElementById("target-op-active-lbl");
+    const targetOpInactiveLbl = document.getElementById("target-op-inactive-lbl");
+
     // 심사 대상 테이블 렌더링 (필터 적용)
     function renderManageTable() {
         if (!manageTableBody || !allTargets) return;
 
+        const statusFilter = manageFilterStatus ? manageFilterStatus.value : "all";
         const catFilter = manageFilterCategory ? manageFilterCategory.value : "all";
         const acFilter = manageFilterAircraft ? manageFilterAircraft.value : "all";
         const engFilter = manageFilterEngine ? manageFilterEngine.value : "all";
         const searchKeyword = manageSearchInput ? manageSearchInput.value.trim().toLowerCase() : "";
 
         const filtered = allTargets.filter(target => {
+            // 운항여부 상태 필터
+            if (statusFilter !== "all") {
+                if ((target.operation_status || "운항") !== statusFilter) {
+                    return false;
+                }
+            }
+
             // 카테고리 필터
             if (catFilter !== "all") {
                 const meta = resolveCategoryMeta(target.category);
@@ -2195,7 +2218,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 const cat = (target.category || "").toLowerCase();
                 const ac = (target.aircraft_types || "").toLowerCase();
                 const eng = (target.engine_types || "").toLowerCase();
-                if (!name.includes(searchKeyword) && !cat.includes(searchKeyword) && !ac.includes(searchKeyword) && !eng.includes(searchKeyword)) {
+                const op = (target.operation_status || "").toLowerCase();
+                if (!name.includes(searchKeyword) && !cat.includes(searchKeyword) && !ac.includes(searchKeyword) && !eng.includes(searchKeyword) && !op.includes(searchKeyword)) {
                     return false;
                 }
             }
@@ -2204,6 +2228,8 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         if (targetCountLbl) targetCountLbl.textContent = filtered.length;
+        if (targetOpActiveLbl) targetOpActiveLbl.textContent = filtered.filter(t => t.operation_status === "운항").length;
+        if (targetOpInactiveLbl) targetOpInactiveLbl.textContent = filtered.filter(t => t.operation_status === "비운항").length;
         manageTableBody.innerHTML = "";
 
         if (filtered.length === 0) {
@@ -2244,6 +2270,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 필터 변경 이벤트 등록
+    if (manageFilterStatus) manageFilterStatus.addEventListener("change", renderManageTable);
     if (manageFilterCategory) manageFilterCategory.addEventListener("change", renderManageTable);
     if (manageFilterAircraft) manageFilterAircraft.addEventListener("change", renderManageTable);
     if (manageFilterEngine) manageFilterEngine.addEventListener("change", renderManageTable);
@@ -2285,7 +2312,7 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("target-modal-title").textContent = "신규 심사 대상 등록";
             document.getElementById("target-edit-id").value = "";
             document.getElementById("target-name-input").value = "";
-            document.getElementById("target-category-select").value = "해외운항지점";
+            document.getElementById("target-category-select").value = "운항정비 지점";
             document.getElementById("target-status-select").value = "운항";
             document.getElementById("target-interval-input").value = "2";
 

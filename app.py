@@ -246,10 +246,27 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
     
     # 2. 국내/공항 STATION 및 내부팀 항목 (base_interval == 1): 간접심사 없이 매년 1회 직접심사(●)
     if base_interval == 1:
+        ref_month = 6
+        ref_auditor = ""
+        if last_audit:
+            ref_auditor = last_audit["auditor"] or ""
+            if last_audit["scheduled_date"]:
+                try:
+                    ref_month = int(last_audit["scheduled_date"].split("-")[1])
+                except Exception:
+                    ref_month = 6
+
         for year in range(start_year, end_year + 1):
             if year in existing_histories:
                 db_record = existing_histories[year]
                 audit_type = db_record["audit_type"] or "직접"
+                s_date = db_record["scheduled_date"] or f"{year}-{ref_month:02d}-01"
+                try:
+                    ref_month = int(s_date.split("-")[1])
+                except Exception:
+                    pass
+                if db_record["auditor"]:
+                    ref_auditor = db_record["auditor"]
                 schedule[year] = {
                     "id": db_record["id"],
                     "target_id": target_id,
@@ -259,8 +276,8 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                     "is_event": db_record["is_event"],
                     "event_detail": db_record["event_detail"],
                     "remarks": db_record["remarks"] or "정기 직접심사",
-                    "scheduled_date": db_record["scheduled_date"] or f"{year}-06-01",
-                    "auditor": db_record["auditor"] or "",
+                    "scheduled_date": s_date,
+                    "auditor": db_record["auditor"] or ref_auditor,
                     "symbol": "◎" if audit_type == "간접" else "●"
                 }
             else:
@@ -272,9 +289,9 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                     "status": "계획",
                     "is_event": False,
                     "event_detail": None,
-                    "remarks": "연례 정기 직접심사 (매년 1회)",
-                    "scheduled_date": f"{year}-06-01",
-                    "auditor": "",
+                    "remarks": f"연례 정기 직접심사 ({ref_month}월)",
+                    "scheduled_date": f"{year}-{ref_month:02d}-01",
+                    "auditor": ref_auditor,
                     "symbol": "●"
                 }
         return schedule
@@ -284,13 +301,14 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
         ref_year = last_audit["year"]
         ref_type = last_audit["audit_type"]
         ref_month = 6
+        ref_auditor = last_audit["auditor"] or ""
         if last_audit["scheduled_date"]:
             try:
                 ref_month = int(last_audit["scheduled_date"].split("-")[1])
             except Exception:
                 ref_month = 6
     else:
-        ref_year, ref_type, ref_month = None, None, 6
+        ref_year, ref_type, ref_month, ref_auditor = None, None, 6, ""
         
     for year in range(start_year, end_year + 1):
         # 4.1 수동 입력된 DB 기록이 있는 경우 -> 해당 입력 시점을 새 기준(Anchor)으로 롤링 리셋
@@ -303,6 +321,8 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                     ref_month = int(s_date.split("-")[1])
                 except Exception:
                     pass
+            if db_record["auditor"]:
+                ref_auditor = db_record["auditor"]
             schedule[year] = {
                 "id": db_record["id"],
                 "target_id": target_id,
@@ -313,7 +333,7 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                 "event_detail": db_record["event_detail"],
                 "remarks": db_record["remarks"] or "",
                 "scheduled_date": s_date,
-                "auditor": db_record["auditor"] or "",
+                "auditor": db_record["auditor"] or ref_auditor,
                 "symbol": "◎" if a_type == "간접" else "●"
             }
             ref_year = year
@@ -336,7 +356,7 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                 "event_detail": detail,
                 "remarks": f"기종/지점 추가 이벤트 ({detail})",
                 "scheduled_date": scheduled_date,
-                "auditor": "",
+                "auditor": ref_auditor,
                 "symbol": "◎"
             }
             ref_year = year
@@ -361,7 +381,7 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                     "event_detail": None,
                     "remarks": f"2년 주기 정기 심사 ({ref_month}월)",
                     "scheduled_date": scheduled_date,
-                    "auditor": "",
+                    "auditor": ref_auditor,
                     "symbol": symbol
                 }
                 ref_year = year
@@ -385,7 +405,7 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                     "event_detail": None,
                     "remarks": f"2년 주기 정기 심사 ({ref_month}월)",
                     "scheduled_date": f"{year}-{ref_month:02d}-01",
-                    "auditor": "",
+                    "auditor": ref_auditor,
                     "symbol": symbol
                 }
                 ref_year = year
@@ -393,27 +413,7 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
             else:
                 schedule[year] = None
         else:
-            # 3. 과거 이력이 없는 신규 운항 대상: 시작 연도에 최초 직접심사(●) 편성
-            if year == start_year:
-                audit_type = "직접"
-                scheduled_date = f"{year}-06-01"
-                schedule[year] = {
-                    "id": None,
-                    "target_id": target_id,
-                    "year": year,
-                    "audit_type": audit_type,
-                    "status": "계획",
-                    "is_event": False,
-                    "event_detail": None,
-                    "remarks": "신규 운항 대상 최초 직접심사",
-                    "scheduled_date": scheduled_date,
-                    "auditor": "",
-                    "symbol": "●"
-                }
-                ref_year = year
-                ref_type = audit_type
-            else:
-                schedule[year] = None
+            schedule[year] = None
                 
     return schedule
 
@@ -677,8 +677,11 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             calendar_data = {m: [] for m in range(1, 13)}
             
             for t in targets:
-                scheds = generate_schedule_for_target_api(t["id"], start_year=year, end_year=year)
+                sched_start = 2026 if year >= 2026 else year
+                scheds = generate_schedule_for_target_api(t["id"], start_year=sched_start, end_year=year)
                 val = scheds.get(year)
+                if year < 2026 and val and val.get("id") is None:
+                    val = None
                 if val:
                     date_str = val["scheduled_date"]
                     try:
@@ -752,8 +755,11 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             filtered_list = []
             
             for t in targets:
-                scheds = generate_schedule_for_target_api(t["id"], start_year=year, end_year=year)
+                sched_start = 2026 if year >= 2026 else year
+                scheds = generate_schedule_for_target_api(t["id"], start_year=sched_start, end_year=year)
                 val = scheds.get(year)
+                if year < 2026 and val and val.get("id") is None:
+                    val = None
                 if val:
                     date_str = val["scheduled_date"]
                     try:
@@ -1041,13 +1047,13 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                 WHERE id = ?
             """, (category, station_name, new_op_status, base_interval, aircraft_types, engine_types, target_id))
             
-            # 3. 비운항 -> 운항으로 변경 시 즉시 신규 카운팅/최초 직접심사 스케줄링 생성
+            # 3. 비운항 -> 운항으로 변경 시 과거/미래 이력이 전혀 없는 경우에만 최초 직접심사 스케줄링 생성
             if old_op_status == "비운항" and new_op_status == "운항":
                 cursor.execute("""
-                    SELECT id FROM audit_history WHERE target_id = ? AND year >= 2026
+                    SELECT id FROM audit_history WHERE target_id = ?
                 """, (target_id,))
-                future_histories = cursor.fetchall()
-                if not future_histories:
+                any_histories = cursor.fetchall()
+                if not any_histories:
                     cursor.execute("""
                         INSERT INTO audit_history (target_id, year, audit_type, status, scheduled_date, auditor, remarks)
                         VALUES (?, 2026, '직접', '계획', '2026-06-01', '', '운항 재개 신규 최초 직접심사')

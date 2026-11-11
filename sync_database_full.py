@@ -1,145 +1,189 @@
 import sqlite3
 import os
 import re
+import glob
+import datetime
+import openpyxl
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "audit.db")
 
-# 정규화된 대상처 이름 매핑 규칙 (5대 표준 분류 체계: 내부심사, 운항정비 지점, 운항정비 위탁, 중정비 위탁, 정비 협력업체)
-TARGET_DEFINITIONS = [
-    # 1. 내부심사 (1년 주기, base_interval=1)
-    {"name": "항공기기술팀", "category": "내부심사", "base_interval": 1, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["항공기기술", "항공기기술팀"]},
-    {"name": "엔진기술팀", "category": "내부심사", "base_interval": 1, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["엔진기술", "엔진기술팀"]},
-    {"name": "정비기획팀", "category": "내부심사", "base_interval": 1, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["정비기획", "정비기획팀"]},
-    {"name": "정비자재팀", "category": "내부심사", "base_interval": 1, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["정비자재", "정비자재팀"]},
-    {"name": "정비통제팀", "category": "내부심사", "base_interval": 1, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["정비통제", "정비통제팀"]},
-    {"name": "운항정비 1,2팀", "category": "내부심사", "base_interval": 1, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["운항정비 1,2", "운항정비 1팀", "운항정비 2팀", "운항정비 1,2팀", "운항정비1, 2팀", "운항정비1팀 / 2팀"]},
-    {"name": "부품수리파트", "category": "내부심사", "base_interval": 1, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["부품수리", "부품수리파트"]},
-    {"name": "정비품질팀", "category": "내부심사", "base_interval": 1, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["정비품질", "정비품질팀"]},
+def get_latest_master_excel():
+    files = sorted(glob.glob(os.path.join(BASE_DIR, "(Master)*.xlsm")))
+    if files:
+        return files[-1]
+    return os.path.join(BASE_DIR, "(Master) 정비본부 품질심사 실시이력(2026.11.11).xlsm")
 
-    # 2. 운항정비 지점 (국내: 1년 주기, 해외: 2년 주기)
-    {"name": "CJU (제주)", "category": "운항정비 지점", "base_interval": 1, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["CJU", "제주지점", "CJU (제주)"]},
-    {"name": "TAE (대구)", "category": "운항정비 지점", "base_interval": 1, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["TAE", "대구지점", "TAE (대구)"]},
-    {"name": "KWJ (광주)", "category": "운항정비 지점", "base_interval": 1, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["KWJ", "광주지점", "KWJ (광주)"]},
-    {"name": "PUS (부산)", "category": "운항정비 지점", "base_interval": 1, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["PUS", "부산지점", "PUS (부산)", "PUS (김해)"]},
-    {"name": "CJJ (청주)", "category": "운항정비 지점", "base_interval": 1, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["CJJ", "청주지점", "CJJ (청주)"]},
-    {"name": "SPN (사이판)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["SPN (사이판)", "SPN", "사이판지점"]},
-    {"name": "KLO (칼리보)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["KLO (칼리보)", "KLO", "칼리보지점"]},
-    {"name": "CEB (세부)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["CEB (세부)", "CEB", "세부지점"]},
-    {"name": "KIX (간사이/오사카)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["KIX (간사이)", "KIX (오사카)", "KIX", "간사이지점"]},
-    {"name": "FUK (후쿠오카)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["FUK (후쿠오카)", "FUK", "후쿠오카지점"]},
-    {"name": "NRT (나리타)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["NRT (나리타)", "NRT", "나리타지점"]},
-    {"name": "GUM (괌)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["GUM (괌)", "GUM(괌)", "GUM"]},
-    {"name": "CTS (치토세)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["CTS (치토세)", "CTS(치토세)", "CTS"]},
-    {"name": "OKA (오키나와)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["OKA (오키나와)", "OKA(오키나와)", "OKA"]},
-    {"name": "KMJ (구마모토)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["KMJ (구마모토)", "KMJ(구마모토)", "KMJ"]},
-    {"name": "FRU (비슈케크)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["FRU (비슈케크)", "FRU(비슈케크)", "FRU"]},
-    {"name": "DAD (다낭)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["DAD (다낭)", "DAD", "DAD지점 (다낭)"]},
-    {"name": "SGN (호치민)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["SGN (호치민)", "SGN"]},
-    {"name": "BKI (코타키나발루)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["BKI (코타키나발루)", "BKI"]},
-    {"name": "UBN (울란바토르)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["UBN (울란바토르)", "UBN(울란바토르)", "UBN"]},
-    {"name": "DYG (장자제)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["DYG (장자제)", "DYG(장가계)", "DYG(장자제)", "DYG"]},
-    {"name": "YNJ (연길)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["YNJ (연길)", "YNJ(옌지)", "YNJ(연길)", "YNJ"]},
-    {"name": "HSG (사가)", "category": "운항정비 지점", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["HSG (사가)", "HSG"]},
+# 행 번호(r: 6~135) 또는 지점명 기준 기종/엔진/담당심사원/예정월 메타데이터
+ROW_METADATA = {
+    # 해외운항지점 (R006 ~ R044)
+    6:  {"name": "GUM (괌)", "ac": "B738", "eng": "CFM56", "aud25": "이진성", "aud27": "최병근", "m26": 10},
+    7:  {"name": "SPN (사이판)", "ac": "B738", "eng": "CFM56", "aud26": "이진성", "m26": 11},
+    8:  {"name": "SYD (시드니)", "ac": "A332,A333", "eng": "PW4100,TRENT700"},
+    9:  {"name": "VTE (비엔티엔)", "ac": "B738", "eng": "CFM56"},
+    10: {"name": "CNX (치앙마이)", "ac": "B738", "eng": "CFM56"},
+    11: {"name": "SGN (호치민)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "m26": 10},
+    12: {"name": "DAD (다낭)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud26": "원대연, 최병근", "m26": 8},
+    13: {"name": "CXR (나트랑)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박병권, 최병근", "aud27": "이진성", "m26": 2},
+    14: {"name": "HAN (하노이)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B"},
+    15: {"name": "DMK (돈므앙)", "ac": "B738,A333", "eng": "CFM56,TRENT700"},
+    16: {"name": "KLO (칼리보)", "ac": "B738", "eng": "CFM56", "aud26": "유준열", "m26": 11},
+    17: {"name": "CRK (클락)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B"},
+    18: {"name": "CEB (세부)", "ac": "B738", "eng": "CFM56", "aud26": "박병권", "m26": 10},
+    19: {"name": "TAG (보홀)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B"},
+    20: {"name": "CTS (치토세)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "최병근", "aud27": "김주원", "m26": 4},
+    21: {"name": "OKA (오키나와)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "박병권", "aud27": "박병권", "m26": 5},
+    22: {"name": "KMJ (구마모토)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "원대연", "aud27": "원대연", "m26": 6},
+    23: {"name": "KIX (오사카)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud26": "김주원", "m26": 9},
+    24: {"name": "FUK (후쿠오카)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud26": "원대연", "m26": 9},
+    25: {"name": "NRT (나리타)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud26": "최병근", "m26": 9},
+    26: {"name": "OIT (오이타)", "ac": "B738", "eng": "CFM56"},
+    27: {"name": "NGO (나고야)", "ac": "B738", "eng": "CFM56"},
+    28: {"name": "KKJ (기타규슈)", "ac": "B738", "eng": "CFM56"},
+    29: {"name": "KOJ (가고시마)", "ac": "B738", "eng": "CFM56"},
+    30: {"name": "HSG (사가)", "ac": "B738", "eng": "CFM56", "aud26": "최병근", "m26": 10},
+    31: {"name": "WNZ (원저우)", "ac": "B738", "eng": "CFM56"},
+    32: {"name": "SHE (심양)", "ac": "B738", "eng": "CFM56"},
+    33: {"name": "WUH (우한)", "ac": "B738", "eng": "CFM56"},
+    34: {"name": "DYG (장가계)", "ac": "B738", "eng": "CFM56", "aud26": "김주원", "m26": 10},
+    35: {"name": "TAO (칭다오)", "ac": "B738", "eng": "CFM56"},
+    36: {"name": "TNA (제남)", "ac": "B738", "eng": "CFM56"},
+    37: {"name": "YNJ (연길)", "ac": "B738", "eng": "CFM56", "aud26": "최병근", "m26": 11},
+    38: {"name": "TSN (텐진)", "ac": "B738", "eng": "CFM56"},
+    39: {"name": "MFM (마카오)", "ac": "B738", "eng": "CFM56"},
+    40: {"name": "BKI (코타키나발루)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "유준열", "m26": 12},
+    41: {"name": "UBN (울란바트로)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud26": "박병권", "m26": 9},
+    42: {"name": "KHV (하바롭스크)", "ac": "B738", "eng": "CFM56"},
+    43: {"name": "VVO (블라디보스톡)", "ac": "B738", "eng": "CFM56"},
+    44: {"name": "FRU (비슈케크)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "이진성", "m26": 9},
 
-    # 3. 운항정비 위탁 (2년 주기, base_interval=2)
-    {"name": "Heston MRO (SYD 시드니)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A332,A333", "engine_types": "PW4100,TRENT700", "aliases": ["Heston MRO (SYD 시드니)", "Heston MRO Pty - SYD (시드니)", "Heston MRO Pty Ltd - SYD지점"]},
-    {"name": "Avia Technics (ZAG 자그레브)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["Avia Technics (ZAG 자그레브)", "Avia Technics - ZAG (자그레브)", "Avia Technics - ZAG지점"]},
-    {"name": "EASTEC (PKX 베이징)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["EASTEC (PKX 베이징)", "EASTEC - PKX (베이징)", "EASTEC - PKX지점"]},
-    {"name": "EASTEC (TAO 칭타오)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["EASTEC (TAO 칭타오)"]},
-    {"name": "EASTEC (YNJ 연길)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["EASTEC (YNJ 연길)"]},
-    {"name": "EASTEC (WUH 우한)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["EASTEC (WUH 우한)"]},
-    {"name": "EASTEC (TNA 지난)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["EASTEC (TNA 지난)"]},
-    {"name": "JAL (FUK 후쿠오카)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["JAL (FUK 후쿠오카)", "JAL - FUK (후쿠오카)"]},
-    {"name": "JAL (CTS 삿포로)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["JAL (CTS 삿포로)"]},
-    {"name": "VAECO (PQC 푸꾸옥)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["VAECO (PQC 푸꾸옥)", "VAECO (PQC)"]},
-    {"name": "VAECO (CXR 나트랑)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["VAECO (CXR 나트랑)", "VAECO (CXR)"]},
-    {"name": "VAECO (HAN 하노이)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["VAECO (HAN 하노이)", "VAECO - HAN (하노이)"]},
-    {"name": "VAECO (DAD 다낭)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["VAECO (DAD 다낭)", "VAECO - DAD (다낭)"]},
-    {"name": "SIAEC (SIN 싱가포르)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["SIAEC (SIN 싱가포르)", "SIAEC - SIN (싱가포르)"]},
-    {"name": "China Airlines (TPE 타오위엔)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["China Airlines (TPE 타오위엔)", "CHINA AIRLINES (TPE 타이위엔)", "CHINA AIRLINES (TPE 타오위엔)"]},
-    {"name": "China Airlines (TSA 송산)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["China Airlines (TSA 송산)", "CHINA AIRLINES (TSA 송산)"]},
-    {"name": "China Airlines (KHH 가오슝)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["China Airlines (KHH 가오슝)", "CHINA AIRLINES (KHH 가오슝)"]},
-    {"name": "Mandarin Airlines (RMQ 타이중)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["Mandarin Airlines (RMQ 타이중)", "Mandarin Airlines-RMQ (타이중)", "Mandarin Airlines - RMQ지점"]},
-    {"name": "Papas (HKG 홍콩)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B773", "engine_types": "CFM56,GE90", "aliases": ["Papas (HKG 홍콩)", "PAPAS - HKG (홍콩)", "PAPAS - HKG지점"]},
-    {"name": "Atitech (FCO 로마)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A333,A332", "engine_types": "TRENT700,PW4100", "aliases": ["Atitech (FCO 로마)", "Atitech - FCO (로마)", "Atitech S.p.A (FCO 로마)"]},
-    {"name": "Atitech (FRA 프랑크푸르트)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["Atitech (FRA 프랑크푸르트)", "Atitech - FRA (프랑크프루트)", "Atitech (FRA)"]},
-    {"name": "Nayak (CDG 파리)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["Nayak (CDG 파리)", "Nayak Aero - CDG (파리)", "Nayak LM-GmbH (CDG 파리)", "Nayak Aero - CDG지점"]},
-    {"name": "KLM (BCN 바르셀로나)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["KLM (BCN 바르셀로나)", "KLM - BCN (바르셀로나)", "KLM (BCN)"]},
-    {"name": "Southern (SHE 선양)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["Southern (SHE 선양)", "Southern - SHE (선양)"]},
-    {"name": "Koreanair (ICN,GMP 운항위탁)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["Koreanair (ICN,GMP 인천,김포)", "Koreanair (ICN,GMP)"]},
-    {"name": "Koreanair (CJU 운항위탁)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["Koreanair (CJU 제주)", "Koreanair (CJU)"]},
-    {"name": "Koreanair (기술관리)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A332,A333", "engine_types": "PW4100,TRENT700", "aliases": ["Koreanair (항공기 기술관리)", "대한항공 (기술관리)"]},
-    {"name": "HNA (HAK 하이커우)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["HNA (HAK 하이커우)"]},
-    {"name": "HNA (SYX 산야)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["HNA (SYX 산야)"]},
-    {"name": "JAE (DPS 발리)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["JAE (DPS 발리)"]},
-    {"name": "South Breeze Aviation (YVR 벤쿠버)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["South Breeze Aviation (YVR 벤쿠버)"]},
-    {"name": "SIAEJ (FUK 후쿠오카)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["SIAEJ (FUK 후쿠오카)"]},
-    {"name": "SIAEJ (CTS 삿포로)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["SIAEJ (CTS 삿포로)"]},
-    {"name": "SIAEJ (KIX 오사카)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["SIAEJ (KIX 오사카)"]},
-    {"name": "SIAECJ (NRT 도쿄)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["SIAECJ (NRT 도쿄)"]},
-    {"name": "SIAECJ (NGO 나고야)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["SIAECJ (NGO 나고야)"]},
-    {"name": "Thai Airways (BKK 방콕)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738,A332,A333", "engine_types": "CFM56,PW4100,TRENT700", "aliases": ["TG (BKK 방콕)", "Thai Airways (BKK 방콕)"]},
-    {"name": "Thai Airways (CNX 치앙마이)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["TG (CNX 치앙마이)", "Thai Airways (CNX 치앙마이)"]},
-    {"name": "APLUS (KLO 칼리보)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["APLUS (KLO 칼리보)"]},
-    {"name": "LTP (CEB 세부)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["LTP (CEB 세부)"]},
-    {"name": "MABES (BKI 코타키나발루)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["MABES (BKI 코타키나발루)"]},
-    {"name": "STORM AVIATION (DAC 다카)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["STORM AVIATION (DAC 다카)"]},
-    {"name": "EU Wings (TAS 타슈켄트)", "category": "운항정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["EU Wings (TAS 타슈켄트)"]},
+    # 완전위탁업체 -> 운항정비 위탁 (R045 ~ R088)
+    45: {"name": "TG (BKK 방콕)", "ac": "B738,A332,A333", "eng": "CFM56,PW4100,TRENT700", "aud25": "유준열", "aud27": "박병권"},
+    46: {"name": "TG (CNX 치앙마이)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "최병근", "aud26": "박병권"},
+    47: {"name": "APLUS (KLO 칼리보)", "ac": "B738", "eng": "CFM56", "aud25": "박병권, 이진성", "aud27": "유준열"},
+    48: {"name": "LTP (CEB 세부)", "ac": "B738", "eng": "CFM56", "aud25": "송동훈, 김주원", "aud27": "박병권"},
+    49: {"name": "MABES (BKI 코타키나발루)", "ac": "B738", "eng": "CFM56", "aud25": "원대연, 박현", "aud27": "유준열"},
+    50: {"name": "JAE (DPS 발리)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "유준열, 박현", "aud27": "원대연"},
+    51: {"name": "STORM AVIATION (DAC 다카)", "ac": "A333", "eng": "TRENT700", "aud25": "박병권, 유준열", "aud27": "김주원"},
+    52: {"name": "PAPAS (HKG 홍콩)", "ac": "B738,A333,B773", "eng": "CFM56,TRENT700,GE90", "aud25": "이진성", "aud27": "권혁"},
+    53: {"name": "Mandarin Airlines (RMQ 타이중)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "이진성"},
+    54: {"name": "CHINA AIRLINES Ltd (TSA 송산)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "최병근, 박현", "aud26": "권혁"},
+    55: {"name": "CHINA AIRLINES Ltd (TPE 타오위엔)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "최병근, 박현", "aud26": "권혁"},
+    56: {"name": "CHINA AIRLINES Ltd (KHH 가오슝)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "임주한, 이진성", "aud26": "권혁"},
+    57: {"name": "JAL (FUK 후쿠오카)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박현"},
+    58: {"name": "JAL (CTS 삿포로)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박현"},
+    59: {"name": "Menzies Macau (MFM 마카오)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "최병근, 이진성"},
+    60: {"name": "SIAEJ (FUK 후쿠오카)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박병권", "aud27": "원대연"},
+    61: {"name": "SIAEJ (CTS 삿포로)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박병권", "aud27": "김주원"},
+    62: {"name": "SIAEJ (KIX 오사카)", "ac": "B738,B38M,A333,B773", "eng": "CFM56,LEAP-1B,TRENT700,GE90", "aud25": "임주한, 박병권", "aud27": "김주원"},
+    63: {"name": "SIAEJ (NRT 도쿄)", "ac": "B738,B38M,A333,B773", "eng": "CFM56,LEAP-1B,TRENT700,GE90", "aud25": "박병권", "aud27": "최병근"},
+    64: {"name": "SIAEJ (NGO 나고야)", "ac": "B738", "eng": "CFM56", "aud25": "박병권", "aud27": "최병근"},
+    65: {"name": "EASTEC (베이징)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "김주원"},
+    66: {"name": "EASTEC (TAO 칭타오)", "ac": "B738", "eng": "CFM56", "aud25": "최병근", "aud26": "유준열"},
+    67: {"name": "EASTEC (WUH 우한)", "ac": "B738", "eng": "CFM56", "aud25": "최병근", "aud27": "김주원"},
+    68: {"name": "EASTEC (TNA 지난)", "ac": "B738", "eng": "CFM56", "aud26": "김주원, 유준열"},
+    69: {"name": "Southern (SHE 선양)", "ac": "B738,A332", "eng": "CFM56,PW4100", "aud26": "최병근", "m26": 10},
+    70: {"name": "Southern (YNJ 연길)", "ac": "B738", "eng": "CFM56", "aud25": "최병근", "aud27": "최병근"},
+    71: {"name": "Southern (DYG 장자제)", "ac": "B738", "eng": "CFM56"},
+    72: {"name": "HNA (HAK 하이커우)", "ac": "B738", "eng": "CFM56", "aud25": "박현", "aud27": "김주원"},
+    73: {"name": "HNA (SYX 싼야)", "ac": "B738", "eng": "CFM56", "aud25": "박현", "aud27": "유준열"},
+    74: {"name": "EASTEC (YNJ 연길)", "ac": "B738", "eng": "CFM56", "aud25": "임주한, 최병근", "aud27": "최병근"},
+    75: {"name": "VAECO (HAN 하노이)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "송동훈, 박현"},
+    76: {"name": "VAECO (DAD 다낭)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud26": "원대연, 최병근"},
+    77: {"name": "VAECO (CXR 나트랑)", "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박병권, 최병근", "aud27": "이진성"},
+    78: {"name": "VAECO (PQC 푸꾸옥)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "김주원", "aud27": "원대연"},
+    79: {"name": "GMF (CGK 자카르타)", "ac": "A333", "eng": "TRENT700", "aud26": "원대연, 이진성"},
+    80: {"name": "SIAEC (SIN 싱가포르)", "ac": "B38M,A332,A333", "eng": "LEAP-1B,PW4100,TRENT700", "aud26": "박병권, 이진성"},
+    81: {"name": "Heston MRO (SYD 시드니)", "ac": "A332,A333", "eng": "PW4100,TRENT700", "aud26": "유준열"},
+    82: {"name": "Avia Technics - ZAG (자그레브)", "ac": "A333", "eng": "TRENT700", "aud26": "권혁"},
+    83: {"name": "Nayak Aero - CDG (파리)", "ac": "A332,A333,B773", "eng": "PW4100,TRENT700,GE90", "aud25": "박현", "aud27": "이진성"},
+    84: {"name": "Atitech - FCO (로마)", "ac": "A332,A333,B773", "eng": "PW4100,TRENT700,GE90", "aud25": "박병권", "aud27": "권혁"},
+    85: {"name": "KLM - BCN (바르셀로나)", "ac": "A332,A333,B773", "eng": "PW4100,TRENT700,GE90", "aud25": "최병근", "aud27": "박병권"},
+    86: {"name": "KLM - CAI (카이로)", "ac": "A332,A333", "eng": "PW4100,TRENT700", "aud26": "권혁"},
+    87: {"name": "Atitech - FRA (프랑크푸르트)", "ac": "A332,A333", "eng": "PW4100,TRENT700", "aud26": "이진성"},
+    88: {"name": "Southbreeze - YVR (벤쿠버)", "ac": "A333,B773", "eng": "TRENT700,GE90", "aud25": "원대연, 김한민", "aud27": "유준열"},
 
-    # 4. 중정비 위탁 (2년 주기, base_interval=2)
-    {"name": "STAECO (TNA 지난)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["STAECO (TNA 지난)", "STAECO - TNA (지난)", "STAECO (지난)", "TNA 지난(A/C)"]},
-    {"name": "EASTEC (KMG 쿤밍)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["EASTEC (KMG 쿤밍)", "EASTEC - KMG (쿤밍)", "EASTEC - KMG 쿤밍(A/C)"]},
-    {"name": "GMF (CGK 자카르타)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,A333", "engine_types": "CFM56,TRENT700", "aliases": ["GMF (CGK 자카르타)", "GMF (CGK)"]},
-    {"name": "STARCO (SHA 상하이)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["STARCO (SHA 상하이)"]},
-    {"name": "ST Engineering Aerospace Engines", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,A333", "engine_types": "CFM56,TRENT700", "aliases": ["ST Engineering Aerospace Engines", "ST AEROSPACE ENGINES (SIN)"]},
-    {"name": "HAECO (XMN 샤먼)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A333", "engine_types": "CFM56,LEAP-1B,TRENT700", "aliases": ["HAECO (XMN 샤먼)", "HAECO - XNM (샤먼)", "HAECO (XMN)"]},
-    {"name": "Standard Aero (위니펙)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["Standard Aero (위니펙)", "STANDARD AERO((위니펙)", "STANDARD AERO"]},
-    {"name": "Sharp Technics K", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["Sharp Technics K", "SHARP TECHNICS K"]},
-    {"name": "HAESL (HKG)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["HAESL (HKG)", "HAESL"]},
-    {"name": "SANAD Aerotech (AUH)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["SANAD Aerotech (AUH)"]},
-    {"name": "Koreanair (중정비)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M,A332,A333", "engine_types": "CFM56,LEAP-1B,PW4100,TRENT700", "aliases": ["Koreanair (중정비)", "대한항공 (중정비)", "대한항공 (기체/엔진)"]},
-    {"name": "TIANJIN HAITE (TSN 텐진)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["TIANJIN HAITE (TSN 텐진)"]},
-    {"name": "SIAEP (CRK 클락)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["SIAEP (CRK 클락)"]},
-    {"name": "LTP (MNL 마닐라)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,A333", "engine_types": "CFM56,TRENT700", "aliases": ["LTP (MNL 마닐라)"]},
-    {"name": "KAEMS", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["KAEMS"]},
-    {"name": "STATCO (XIAMEN 샤먼)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["STATCO (XIAMEN 샤먼)", "STATCO (XIAMEN)"]},
-    {"name": "GE ENGINE SERVICES (WALES)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["GE ENGINE SERVICES (WALES)"]},
-    {"name": "GE ON WINGS KOREA", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738,B38M", "engine_types": "CFM56,LEAP-1B", "aliases": ["GE ON WINGS KOREA"]},
-    {"name": "Lufthansa Technik AG", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "A333,B773", "engine_types": "TRENT700,GE90", "aliases": ["Lufthansa Technik AG"]},
-    {"name": "N3 Engine Overhaul Services", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "A333", "engine_types": "TRENT700", "aliases": ["N3 Engine Overhaul Services"]},
-    {"name": "AMECO (CTU 청두)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["AMECO (CTU 청두)", "AMECO (CTU)"]},
-    {"name": "AIR ASIA (TNN 타이난)", "category": "중정비 위탁", "base_interval": 2, "aircraft_types": "B738", "engine_types": "CFM56", "aliases": ["AIR ASIA (TNN 타이난)", "AIR ASIA (TNN)"]},
+    # 엔진정비업체 -> 중정비 위탁 (R089 ~ R098)
+    89: {"name": "ST Aerospace Engines Pte Ltd (SIN)", "ac": "B738", "eng": "CFM56", "aud26": "최병근"},
+    90: {"name": "SAESL (SIN 싱가폴)", "ac": "A333", "eng": "TRENT700", "aud26": "박병권, 최병근"},
+    91: {"name": "EU Wings (TAS)", "ac": "A333", "eng": "TRENT700", "aud25": "이진성, 최수연"},
+    92: {"name": "ST Aerospace Engines Pte Ltd (XIAMEN)", "ac": "B738", "eng": "CFM56", "aud25": "이진성", "aud27": "최병근", "m25": 8},
+    93: {"name": "HAESL (HKG)", "ac": "A333", "eng": "TRENT700", "aud26": "박현"},
+    94: {"name": "GMF (CGK 자카르타) ENG", "ac": "B738", "eng": "CFM56", "aud25": "박현", "aud27": "최병근, 박현"},
+    95: {"name": "GE Aircraft Engine Services (Wales)", "ac": "B738,B773", "eng": "CFM56,GE90", "aud25": "유준열", "aud27": "박현"},
+    96: {"name": "SANAD Aerotech (AUH 아부다비)", "ac": "A333", "eng": "TRENT700", "aud27": "박현", "m27": 9},
+    97: {"name": "Standard Aero (위니펙)", "ac": "B738", "eng": "CFM56", "aud26": "이진성"},
+    98: {"name": "GA Telesis (HEL 헬싱키)", "ac": "B738,A333", "eng": "CFM56,TRENT700", "aud26": "원대연, 이진성"},
 
-    # 5. 정비 협력업체 (1년 주기, base_interval=1)
-    {"name": "대동금속", "category": "정비 협력업체", "base_interval": 1, "aircraft_types": "B738,B38M", "engine_types": "", "aliases": ["대동금속"]},
-    {"name": "디엠티 (DMT)", "category": "정비 협력업체", "base_interval": 1, "aircraft_types": "B738,B38M,A333", "engine_types": "", "aliases": ["디엠티", "DMT"]}
-]
+    # 중정비업체 -> 중정비 위탁 (R099 ~ R111)
+    99:  {"name": "AMECO (CTU)", "ac": "B738,A332,A333", "eng": "CFM56,PW4100,TRENT700", "aud25": "유준열", "aud27": "김주원"},
+    100: {"name": "Air Asia Company Ltd (TNN) - Heavy", "ac": "B738", "eng": "CFM56", "aud25": "원대연", "aud27": "권혁"},
+    101: {"name": "SIAEP (CRK 클락) - HEAVY", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "원대연, 김주원", "aud27": "원대연"},
+    102: {"name": "LTP (MNL 마닐라) - HEAVY", "ac": "B738,A333", "eng": "CFM56,TRENT700", "aud25": "유준열, 최병근", "aud27": "박병권"},
+    103: {"name": "MIAT Mongolian Airlines (ULN)", "ac": "B738", "eng": "CFM56", "aud25": "박병권", "aud27": "이진성"},
+    104: {"name": "GMF (CGK 자카르타) - C/K", "ac": "B738,A333", "eng": "CFM56,TRENT700", "aud25": "박현", "aud27": "원대연, 이진성"},
+    105: {"name": "EASTEC (KMG)", "ac": "B738", "eng": "CFM56", "aud26": "김주원"},
+    106: {"name": "STAECO (TNA)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "박병권"},
+    107: {"name": "STATCO (XIANMEN) - ENGINE", "ac": "B738", "eng": "CFM56", "aud25": "이진성", "aud27": "최병근"},
+    108: {"name": "HAITE (TIANJIN TSN 톈진)", "ac": "B738", "eng": "CFM56", "aud25": "박병권, 박현", "aud27": "김주원"},
+    109: {"name": "STARCO (SHA 상하이)", "ac": "B738,A332,A333", "eng": "CFM56,PW4100,TRENT700", "aud26": "박병권, 최병근"},
+    110: {"name": "GCAM (HAK 하이커우)", "ac": "B738,A333", "eng": "CFM56,TRENT700", "aud26": "원대연, 김주원"},
+    111: {"name": "HAECO (XMN)", "ac": "B738,B38M,A333,B773", "eng": "CFM56,LEAP-1B,TRENT700,GE90", "aud26": "최병근", "m26": 10},
 
-def find_standard_target(raw_name):
-    clean = raw_name.strip()
-    clean_lower = clean.lower().replace(" ", "").replace("-", "").replace("–", "")
-    for defn in TARGET_DEFINITIONS:
-        for alias in defn["aliases"]:
-            a_clean = alias.lower().replace(" ", "").replace("-", "").replace("–", "")
-            if a_clean == clean_lower:
-                return defn
-    # Prefix / Substring matching
-    for defn in TARGET_DEFINITIONS:
-        for alias in defn["aliases"]:
-            a_clean = alias.lower().replace(" ", "").replace("-", "")
-            if len(a_clean) >= 3 and (a_clean in clean_lower or clean_lower in a_clean):
-                return defn
-    return {
-        "name": clean,
-        "category": "운항정비 위탁",
-        "base_interval": 2,
-        "aircraft_types": "",
-        "engine_types": ""
-    }
+    # 국내업체 (R112 ~ R135)
+    112: {"name": "대한항공 (ICN, GMP 인천,김포)", "cat": "운항정비 위탁", "intv": 2, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "박현", "aud27": "권혁, 김주원"},
+    113: {"name": "대한항공 (CJU 제주)", "cat": "운항정비 위탁", "intv": 2, "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박현", "aud27": "권혁, 김주원"},
+    114: {"name": "N3 ENGINE OVERHAUL SERVICES", "cat": "중정비 위탁", "intv": 2, "ac": "A333", "eng": "TRENT700", "aud25": "박병권, 최병근", "aud27": "박현"},
+    115: {"name": "Lufthansa Technik AG (Engine / HAM)", "cat": "중정비 위탁", "intv": 2, "ac": "A333,B773", "eng": "TRENT700,GE90", "aud25": "이진성, 최병근", "aud27": "박현"},
+    116: {"name": "대한항공 (중정비)", "cat": "중정비 위탁", "intv": 2, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "박현", "aud27": "권혁, 김주원"},
+    117: {"name": "GE ON WINGS KOREA", "cat": "중정비 위탁", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "최병근", "aud27": "박현"},
+    118: {"name": "KAEMS", "cat": "중정비 위탁", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "박현", "aud27": "유준열"},
+    119: {"name": "Sharp Technics K", "cat": "중정비 위탁", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "유준열"},
+    120: {"name": "대한항공 (기술관리, 직접 1년)", "cat": "운항정비 위탁", "intv": 2, "ac": "A332,A333,B773", "eng": "PW4100,TRENT700,GE90", "aud26": "권혁, 김주원"},
+    121: {"name": "DMT", "cat": "정비 협력업체", "intv": 1, "ac": "B738,B38M,A333", "eng": "", "aud25": "박현", "aud26": "박현", "m26": 7},
+    122: {"name": "대동금속", "cat": "정비 협력업체", "intv": 1, "ac": "B738,B38M", "eng": "", "aud26": "최병근", "m26": 6},
+    123: {"name": "고암에이스항공", "cat": "정비 협력업체", "intv": 1, "ac": "B738,B38M,A333", "eng": "", "aud26": "박병권", "m26": 8},
+    124: {"name": "항공기기술", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "권혁, 최병근", "m26": 9, "d24": "2024-09-01"},
+    125: {"name": "엔진기술", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "이진성, 김주원", "m26": 6, "d26": "2026-06-25", "st26": "완료", "d24": "2024-09-01"},
+    126: {"name": "정비기획", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "박병권, 최병근", "m26": 8, "d24": "2024-11-01"},
+    127: {"name": "정비자재", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "권혁, 박현", "aud26": "원대연, 유준열", "m26": 10, "d25": "2025-03-11", "d24": "2024-03-01"},
+    128: {"name": "정비통제", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "송동훈, 김주원", "m26": 11, "d24": "2024-11-01"},
+    129: {"name": "운항정비1,2", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "최병근, 박현", "aud26": "박병권, 권혁", "m26": 7, "d25": "2025-08-18", "d24": "2024-03-01"},
+    130: {"name": "부품수리", "cat": "내부심사", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "이병철", "aud26": "박병권", "m26": 3, "d26": "2026-03-25", "st26": "완료", "d25": "2025-09-24", "d24": "2024-05-01"},
+    131: {"name": "CJU (제주)", "cat": "운항정비 지점", "intv": 1, "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "이진성", "aud26": "원대연", "m26": 8, "d25": "2025-07-18", "d24": "2024-07-01"},
+    132: {"name": "TAE (대구)", "cat": "운항정비 지점", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "송동훈", "m26": 9, "d24": "2024-04-01"},
+    133: {"name": "KWJ (광주)", "cat": "운항정비 지점", "intv": 1, "ac": "B738", "eng": "CFM56", "aud25": "김한민", "aud26": "이진성", "m26": 5, "d26": "2026-05-29", "st26": "완료", "d25": "2025-05-29", "d24": "2024-05-01"},
+    134: {"name": "PUS (부산)", "cat": "운항정비 지점", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "최문성", "aud26": "원대연", "m26": 10, "d25": "2025-10-16", "d24": "2024-08-01"},
+    135: {"name": "CJJ (청주)", "cat": "운항정비 지점", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "이병철", "aud26": "이진성", "m26": 11, "d25": "2025-11-20", "d24": "2024-11-01"},
+}
 
-def rebuild_clean_database():
-    print(f"Rebuilding normalized database: {DB_PATH}")
+def parse_excel_date(val, default_year, default_month=6):
+    if val is not None:
+        if isinstance(val, (datetime.datetime, datetime.date)):
+            return val.strftime("%Y-%m-%d"), True
+        s = str(val).strip()
+        # YYYY.MM.DD or YYYY-MM-DD
+        m = re.search(r'(20\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})', s)
+        if m:
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            return f"{y:04d}-{mo:02d}-{d:02d}", True
+        # YYYY.MM or YYYY-MM
+        m_ym = re.search(r'(20\d{2})[.\-/](\d{1,2})', s)
+        if m_ym:
+            y, mo = int(m_ym.group(1)), int(m_ym.group(2))
+            return f"{y:04d}-{mo:02d}-01", True
+    return f"{default_year:04d}-{default_month:02d}-01", False
+
+def rebuild_clean_database(excel_path=None):
+    if not excel_path:
+        excel_path = get_latest_master_excel()
+    print(f"Syncing database from Master Excel: {os.path.basename(excel_path)}")
+
+    wb_d = openpyxl.load_workbook(excel_path, data_only=True)
+    ws_d = wb_d["수행실적"]
+    wb_f = openpyxl.load_workbook(excel_path, data_only=False)
+    ws_f = wb_f["수행실적"]
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
@@ -220,200 +264,120 @@ def rebuild_clean_database():
     )
     """)
 
-    target_map = {} # standard_name -> id
+    target_map = {}  # station_name -> target_id
+    last_raw_cat = ""
 
-    def get_or_create(raw_name):
-        defn = find_standard_target(raw_name)
-        std_name = defn["name"]
-        if std_name in target_map:
-            return target_map[std_name]
-        
+    for r in range(6, ws_d.max_row + 1):
+        c_val = ws_d.cell(r, 1).value
+        if c_val:
+            last_raw_cat = str(c_val).strip()
+        op_raw = str(ws_d.cell(r, 2).value or "").strip()
+        st_raw = re.sub(r'\s+', ' ', str(ws_d.cell(r, 3).value or "")).strip()
+        if not st_raw:
+            continue
+
+        op_status = "비운항" if op_raw == "비운항" else "운항"
+        meta = ROW_METADATA.get(r, {})
+
+        # 표준 5대 분류 및 주기 결정
+        if "cat" in meta:
+            std_cat = meta["cat"]
+            base_interval = meta.get("intv", 2)
+        elif last_raw_cat == "해외운항지점":
+            std_cat = "운항정비 지점"
+            base_interval = 2
+        elif last_raw_cat == "완전위탁업체":
+            std_cat = "운항정비 위탁"
+            base_interval = 2
+        elif last_raw_cat in ("엔진정비업체", "중정비업체"):
+            std_cat = "중정비 위탁"
+            base_interval = 2
+        else:
+            std_cat = "운항정비 위탁"
+            base_interval = 2
+
+        station_name = meta.get("name", st_raw)
+        if station_name in target_map:
+            station_name = f"{station_name} ({last_raw_cat})"
+
+        ac_types = meta.get("ac", "")
+        eng_types = meta.get("eng", "")
+
         c.execute("""
             INSERT INTO audit_targets (category, operation_status, station_name, base_interval, aircraft_types, engine_types)
-            VALUES (?, '운항', ?, ?, ?, ?)
-        """, (defn["category"], std_name, defn.get("base_interval", 2), defn.get("aircraft_types", ""), defn.get("engine_types", "")))
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (std_cat, op_status, station_name, base_interval, ac_types, eng_types))
         tid = c.lastrowid
-        target_map[std_name] = tid
-        return tid
+        target_map[station_name] = tid
 
-    # Target definition preload
-    for defn in TARGET_DEFINITIONS:
-        get_or_create(defn["name"])
+        # 연도별 이력/계획 파싱 (2023, 2024, 2025, 2026 + 수동 2027)
+        last_known_month = meta.get("m26", 6)
 
-    def add_history(raw_name, year, audit_type, status, date_str, auditor="", remarks=""):
-        tid = get_or_create(raw_name)
-        c.execute("SELECT id, status FROM audit_history WHERE target_id = ? AND year = ?", (tid, year))
-        existing = c.fetchall()
-        if existing:
-            if status == "계획" and any(r[1] == "완료" for r in existing):
-                return
-            if status == "완료":
-                c.execute("DELETE FROM audit_history WHERE target_id = ? AND year = ? AND status = '계획'", (tid, year))
+        for yr, col_sym in [(2023, 14), (2024, 12), (2025, 10), (2026, 8), (2027, 6)]:
+            sym = str(ws_d.cell(r, col_sym).value or "").strip()
+            det = ws_d.cell(r, col_sym + 1).value
+            f_sym = str(ws_f.cell(r, col_sym).value or "").strip()
+            is_formula = f_sym.startswith("=")
 
-        c.execute("""
-            INSERT INTO audit_history (target_id, year, audit_type, status, scheduled_date, auditor, remarks)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (tid, year, audit_type, status, date_str, auditor, remarks))
+            # 2027년은 수동으로 직접/간접 기호가 기입된 특수 대상(예: R096 SANAD Aerotech)만 DB에 저장하고 나머지는 동적 롤링
+            if yr == 2027:
+                if base_interval == 1 or is_formula:
+                    continue
 
-    # --- 1. 2024년 데이터 (직접/간접) ---
-    h_2024 = [
-        ("항공기기술팀", "직접", "2024-09-01"), ("엔진기술팀", "직접", "2024-09-01"), ("정비기획팀", "직접", "2024-11-01"),
-        ("정비자재팀", "직접", "2024-03-01"), ("정비통제팀", "직접", "2024-11-01"), ("운항정비 1,2팀", "직접", "2024-03-01"),
-        ("부품수리파트", "직접", "2024-05-01"), ("CJU (제주)", "직접", "2024-07-01"), ("TAE (대구)", "직접", "2024-04-01"),
-        ("KWJ (광주)", "직접", "2024-05-01"), ("PUS (부산)", "직접", "2024-08-01"), ("CJJ (청주)", "직접", "2024-11-01"),
-        ("대동금속", "직접", "2024-08-01"),
-        # 간접
-        ("SPN (사이판)", "간접", "2024-11-01"), ("SGN (호치민)", "간접", "2024-10-01"), ("CEB (세부)", "간접", "2024-10-01"),
-        ("KLO (칼리보)", "간접", "2024-11-01"), ("KIX (간사이/오사카)", "간접", "2024-11-01"), ("FUK (후쿠오카)", "간접", "2024-10-01"),
-        ("NRT (나리타)", "간접", "2024-11-01"), ("JAL (FUK 후쿠오카)", "간접", "2024-11-01"), ("Papas (HKG 홍콩)", "간접", "2024-07-01"),
-        ("VAECO (DAD 다낭)", "간접", "2024-12-01"), ("VAECO (HAN 하노이)", "간접", "2024-12-01"), ("SIAEC (SIN 싱가포르)", "간접", "2024-09-01"),
-        # 직접
-        ("FRU (비슈케크)", "직접", "2024-09-01"), ("DAD (다낭)", "직접", "2024-06-01"), ("BKI (코타키나발루)", "직접", "2024-11-01"),
-        ("UBN (울란바토르)", "직접", "2024-09-01"), ("DYG (장자제)", "직접", "2024-10-01"), ("YNJ (연길)", "직접", "2024-11-01"),
-        ("HSG (사가)", "직접", "2024-10-01"), ("Mandarin Airlines (RMQ 타이중)", "직접", "2024-01-01"), ("EASTEC (PKX 베이징)", "직접", "2024-06-01"),
-        ("Southern (SHE 선양)", "직접", "2024-10-01"), ("Avia Technics (ZAG 자그레브)", "직접", "2024-06-01"), ("Nayak (CDG 파리)", "직접", "2024-06-01"),
-        ("Atitech (FCO 로마)", "직접", "2024-08-01"), ("KLM (BCN 바르셀로나)", "직접", "2024-08-01"), ("Atitech (FRA 프랑크푸르트)", "직접", "2024-09-01"),
-        ("Heston MRO (SYD 시드니)", "직접", "2024-02-01"), ("Koreanair (중정비)", "직접", "2024-05-01"), ("STAECO (TNA 지난)", "직접", "2024-03-01"),
-        ("EASTEC (KMG 쿤밍)", "직접", "2024-02-01"), ("HAECO (XMN 샤먼)", "직접", "2024-10-01"), ("Standard Aero (위니펙)", "직접", "2024-06-01")
-    ]
-    for target, atype, sdate in h_2024:
-        add_history(target, 2024, atype, "완료", sdate, remarks="2024년도 수행완료")
+            if sym not in ("●", "◎"):
+                # 내부심사/국내지점(R124~R135)의 2024/2025년 보조 이력 반영
+                if yr == 2024 and "d24" in meta:
+                    c.execute("""
+                        INSERT INTO audit_history (target_id, year, audit_type, status, scheduled_date, auditor, remarks)
+                        VALUES (?, 2024, '직접', '완료', ?, '', '2024년도 수행완료')
+                    """, (tid, meta["d24"]))
+                elif yr == 2025 and "d25" in meta:
+                    c.execute("""
+                        INSERT INTO audit_history (target_id, year, audit_type, status, scheduled_date, auditor, remarks)
+                        VALUES (?, 2025, '직접', '완료', ?, ?, '2025년도 수행완료')
+                    """, (tid, meta["d25"], meta.get("aud25", "")))
+                continue
 
-    # --- 2. 2025년 데이터 ---
-    h_2025 = [
-        ("정비자재팀", "직접", "완료", "2025-03-11", "권혁, 박현", "정기 직접심사"),
-        ("정비자재팀", "직접", "완료", "2025-11-17", "박현, 최병근", "특별심사"),
-        ("운항정비 1,2팀", "직접", "완료", "2025-08-18", "최병근, 박현", "OJT: 최문성, 김주원"),
-        ("부품수리파트", "직접", "완료", "2025-09-24", "이병철", "OJT: 이치규"),
-        ("정비품질팀", "직접", "완료", "2025-04-29", "", "안전품질 정기 심사로 대체"),
-        ("CJU (제주)", "직접", "완료", "2025-07-18", "이진성", "OJT: 송동훈"),
-        ("KWJ (광주)", "직접", "완료", "2025-05-29", "김한민", ""),
-        ("PUS (부산)", "직접", "완료", "2025-10-16", "최문성", ""),
-        ("CJJ (청주)", "직접", "완료", "2025-11-20", "이병철", ""),
-        ("GUM (괌)", "간접", "완료", "2025-10-15", "이진성", "2년 주기 간접"),
-        ("CTS (치토세)", "간접", "완료", "2025-04-10", "최병근", "2년 주기 간접"),
-        ("OKA (오키나와)", "간접", "완료", "2025-05-28", "박병권", "2년 주기 간접"),
-        ("HNA (HAK 하이커우)", "간접", "완료", "2025-08-12", "박현", "2년 주기 간접"),
-        ("HNA (SYX 산야)", "간접", "완료", "2025-08-12", "박현", "2년 주기 간접"),
-        ("VAECO (PQC 푸꾸옥)", "간접", "완료", "2025-12-01", "김주원", "B38M 기종 추가"),
-        ("Mandarin Airlines (RMQ 타이중)", "간접", "완료", "2025-12-01", "이진성", "B38M 기종 추가"),
-        ("GMF (CGK 자카르타)", "간접", "완료", "2025-03-04", "박현", "2년 주기 간접"),
-        ("AMECO (CTU 청두)", "간접", "완료", "2025-10-13", "유준열", "2년 주기 간접"),
-        ("Koreanair (중정비)", "간접", "완료", "2025-01-09", "박현", "서류심사"),
-        ("KAEMS", "간접", "완료", "2025-09-11", "박현", "2년 주기 간접"),
-        ("STATCO (XIAMEN 샤먼)", "간접", "완료", "2025-11-17", "이진성", "2년 주기 간접"),
-        ("GE ENGINE SERVICES (WALES)", "간접", "완료", "2025-06-23", "유준열", "2년 주기 간접"),
-        ("GE ON WINGS KOREA", "간접", "완료", "2025-05-26", "최병근", "2년 주기 간접"),
-        ("KMJ (구마모토)", "직접", "완료", "2025-06-09", "원대연", ""),
-        ("EASTEC (YNJ 연길)", "직접", "완료", "2025-06-24", "임주한, 최병근", "초도"),
-        ("EASTEC (TAO 칭타오)", "직접", "완료", "2025-10-29", "최병근", "초도"),
-        ("EASTEC (WUH 우한)", "직접", "완료", "2025-10-29", "최병근", "초도"),
-        ("VAECO (CXR 나트랑)", "직접", "완료", "2025-02-25", "박병권, 최병근", "주재정비 포함"),
-        ("VAECO (PQC 푸꾸옥)", "직접", "완료", "2025-10-01", "김주원", "초도"),
-        ("China Airlines (TSA 송산)", "직접", "완료", "2025-07-08", "최병근, 박현", ""),
-        ("China Airlines (TPE 타오위엔)", "직접", "완료", "2025-07-08", "최병근, 박현", ""),
-        ("China Airlines (KHH 가오슝)", "직접", "완료", "2025-07-07", "임주한, 이진성", ""),
-        ("JAE (DPS 발리)", "직접", "완료", "2025-04-15", "유준열, 박현", "초도"),
-        ("Papas (HKG 홍콩)", "직접", "완료", "2025-09-24", "이진성", "B777 기종추가"),
-        ("Atitech (FCO 로마)", "직접", "완료", "2025-02-18", "박병권", "기종추가"),
-        ("Nayak (CDG 파리)", "직접", "완료", "2025-02-18", "박현", "기종추가"),
-        ("KLM (BCN 바르셀로나)", "직접", "완료", "2025-09-08", "최병근", ""),
-        ("Koreanair (ICN,GMP 운항위탁)", "직접", "완료", "2025-01-09", "박현", ""),
-        ("Koreanair (CJU 운항위탁)", "직접", "완료", "2025-01-09", "박현", ""),
-        ("South Breeze Aviation (YVR 벤쿠버)", "직접", "완료", "2025-04-15", "원대연, 김한민", "초도"),
-        ("JAL (CTS 삿포로)", "직접", "완료", "2025-02-11", "박현", "지점추가"),
-        ("JAL (FUK 후쿠오카)", "직접", "완료", "2025-02-11", "박현", "기종추가"),
-        ("SIAEJ (FUK 후쿠오카)", "직접", "완료", "2025-09-11", "박병권", "지점추가"),
-        ("SIAEJ (CTS 삿포로)", "직접", "완료", "2025-09-11", "박병권", "지점추가"),
-        ("SIAEJ (KIX 오사카)", "직접", "완료", "2025-08-18", "임주한, 박병권", "초도"),
-        ("SIAECJ (NRT 도쿄)", "직접", "완료", "2025-09-11", "박병권", "지점추가"),
-        ("SIAECJ (NGO 나고야)", "직접", "완료", "2025-09-11", "박병권", "지점추가"),
-        ("Thai Airways (BKK 방콕)", "직접", "완료", "2025-04-22", "유준열", "A332 기종추가"),
-        ("Thai Airways (CNX 치앙마이)", "직접", "완료", "2025-10-15", "최병근", "B738 기종추가"),
-        ("APLUS (KLO 칼리보)", "직접", "완료", "2025-11-05", "박병권, 이진성", "초도"),
-        ("LTP (CEB 세부)", "직접", "완료", "2025-10-28", "송동훈, 김주원", "초도"),
-        ("MABES (BKI 코타키나발루)", "직접", "완료", "2025-11-26", "원대연, 박현", "초도"),
-        ("STORM AVIATION (DAC 다카)", "직접", "완료", "2025-11-20", "박병권, 유준열", "초도"),
-        ("EU Wings (TAS 타슈켄트)", "직접", "완료", "2025-05-05", "이진성, 최수연", "초도"),
-        ("Koreanair (기술관리)", "직접", "완료", "2025-01-09", "최수연, 박현", "초도"),
-        ("TIANJIN HAITE (TSN 텐진)", "직접", "완료", "2025-03-17", "박병권, 박현", "초도"),
-        ("SIAEP (CRK 클락)", "직접", "완료", "2025-09-10", "원대연, 김주원", "초도"),
-        ("LTP (MNL 마닐라)", "직접", "완료", "2025-10-21", "유준열, 최병근", "초도"),
-        ("Lufthansa Technik AG", "직접", "완료", "2025-04-16", "이진성, 최병근", "초도"),
-        ("N3 Engine Overhaul Services", "직접", "완료", "2025-09-16", "박병권, 최병근", "초도"),
-        ("디엠티 (DMT)", "직접", "완료", "2025-05-23", "박현", "초도")
-    ]
-    for target, atype, st, sdate, aud, rmk in h_2025:
-        add_history(target, 2025, atype, st, sdate, aud, rmk)
+            audit_type = "직접" if sym == "●" else "간접"
+            default_mo = meta.get(f"m{yr % 100}", last_known_month)
+            s_date, has_exact_date = parse_excel_date(det, yr, default_mo)
+            try:
+                last_known_month = int(s_date.split("-")[1])
+            except Exception:
+                pass
 
-    # --- 3. 2026년 데이터 ---
-    h_2026 = [
-        # 완료 (R)
-        ("STARCO (SHA 상하이)", "직접", "완료", "2026-02-02", "박병권, 최병근", "2026.02.02 ~ 02.05"),
-        ("GMF (CGK 자카르타)", "직접", "완료", "2026-02-25", "원대연, 이진성", "2026.02.25 ~ 26"),
-        ("부품수리파트", "직접", "완료", "2026-03-25", "박병권", "2026.03.25"),
-        ("정비품질팀", "직접", "완료", "2026-03-17", "", "2026.03.17 ~ 19"),
-        ("Heston MRO (SYD 시드니)", "간접", "완료", "2026-03-06", "유준열", "2026.03.06"),
-        ("EASTEC (KMG 쿤밍)", "간접", "완료", "2026-03-09", "김주원", "2026.03.09"),
-        ("STAECO (TNA 지난)", "간접", "완료", "2026-03-18", "박병권", "2026.03.18"),
-        ("ST Engineering Aerospace Engines", "간접", "완료", "2026-03-26", "최병근", "2026.03.26"),
-        ("EASTEC (TNA 지난)", "간접", "완료", "2026-04-10", "김주원, 유준열", "2026.04.10, 2026.06.16"),
-        ("KWJ (광주)", "직접", "완료", "2026-05-29", "이진성", "2026.05.29"),
-        ("엔진기술팀", "직접", "완료", "2026-06-25", "이진성", "2026.06.25"),
-        ("EASTEC (PKX 베이징)", "간접", "완료", "2026-06-01", "김주원", ""),
-        ("EASTEC (TAO 칭타오)", "간접", "완료", "2026-06-16", "유준열", "2026.06.16"),
-        ("Avia Technics (ZAG 자그레브)", "간접", "완료", "2026-06-18", "권혁", "2026.06.18"),
-        ("Koreanair (기술관리)", "직접", "완료", "2026-06-01", "권혁, 김주원", ""),
-        ("대동금속", "직접", "완료", "2026-06-01", "최병근", ""),
+            if yr <= 2025:
+                status_str = "완료"
+                auditor = meta.get(f"aud{yr % 100}", meta.get("aud27", ""))
+                det_str = str(det).strip() if det is not None else ""
+                if isinstance(det, (datetime.datetime, datetime.date)):
+                    det_str = det.strftime("%Y.%m.%d")
+                remarks = det_str if det_str and det_str != "None" else f"{yr}년도 수행완료"
+            elif yr == 2026:
+                if "d26" in meta:
+                    s_date = meta["d26"]
+                if "st26" in meta:
+                    status_str = meta["st26"]
+                else:
+                    status_str = "완료" if has_exact_date else "계획"
+                auditor = meta.get("aud26", meta.get("aud25", ""))
+                det_str = str(det).strip() if det is not None else ""
+                remarks = det_str if det_str and det_str != "None" else "2026년 정기심사"
+            else:
+                # 2027 manual entry (e.g. SANAD Aerotech)
+                status_str = "계획"
+                auditor = meta.get("aud27", "")
+                remarks = "2027년 초도/정기 직접심사"
 
-        # 계획 (P)
-        ("운항정비 1,2팀", "직접", "계획", "2026-07-01", "박병권, 권혁", "2026년 계획"),
-        ("정비기획팀", "직접", "계획", "2026-08-01", "박병권, 최병근", "2026년 계획"),
-        ("정비자재팀", "직접", "계획", "2026-10-01", "원대연, 유준열", "2026년 계획"),
-        ("정비통제팀", "직접", "계획", "2026-11-01", "송동훈, 김주원", "2026년 계획"),
-        ("항공기기술팀", "직접", "계획", "2026-11-01", "이진성, 최병근", "2026년 계획"),
-        ("CJU (제주)", "직접", "계획", "2026-08-01", "원대연", "2026년 계획"),
-        ("TAE (대구)", "직접", "계획", "2026-09-01", "송동훈", "2026년 계획"),
-        ("PUS (부산)", "직접", "계획", "2026-10-01", "원대연", "2026년 계획"),
-        ("CJJ (청주)", "직접", "계획", "2026-11-01", "이진성", "2026년 계획"),
-        ("SPN (사이판)", "직접", "계획", "2026-11-01", "이진성", "2026년 계획"),
-        ("KLO (칼리보)", "직접", "계획", "2026-08-01", "유준열", "2026년 계획"),
-        ("CEB (세부)", "직접", "계획", "2026-10-01", "박병권", "2026년 계획"),
-        ("KIX (간사이/오사카)", "직접", "계획", "2026-08-01", "김주원", "2026년 계획"),
-        ("FUK (후쿠오카)", "직접", "계획", "2026-09-01", "원대연", "2026년 계획"),
-        ("NRT (나리타)", "직접", "계획", "2026-10-01", "최병근", "2026년 계획"),
-        ("VAECO (HAN 하노이)", "직접", "계획", "2026-08-01", "송동훈, 박현", "2026년 계획"),
-        ("VAECO (DAD 다낭)", "직접", "계획", "2026-08-01", "원대연, 최병근", "2026년 계획"),
-        ("SIAEC (SIN 싱가포르)", "직접", "계획", "2026-09-01", "박병권, 이진성", "2026년 계획"),
-        ("SANAD Aerotech (AUH)", "직접", "계획", "2026-09-01", "", "2026년 계획"),
-        ("디엠티 (DMT)", "직접", "계획", "2026-07-01", "박현", "2026년 계획"),
-        
-        ("YNJ (연길)", "간접", "계획", "2026-07-01", "최병근", "2026년 계획"),
-        ("BKI (코타키나발루)", "간접", "계획", "2026-08-01", "유준열", "2026년 계획"),
-        ("UBN (울란바토르)", "간접", "계획", "2026-09-01", "박병권", "2026년 계획"),
-        ("FRU (비슈케크)", "간접", "계획", "2026-09-01", "이진성", "2026년 계획"),
-        ("DYG (장자제)", "간접", "계획", "2026-10-01", "김주원", "2026년 계획"),
-        ("HSG (사가)", "간접", "계획", "2026-10-01", "최병근", "2026년 계획"),
-        ("China Airlines (TPE 타오위엔)", "간접", "계획", "2026-08-01", "권혁", "2026년 계획"),
-        ("China Airlines (TSA 송산)", "간접", "계획", "2026-08-01", "권혁", "2026년 계획"),
-        ("China Airlines (KHH 가오슝)", "간접", "계획", "2026-08-01", "권혁", "2026년 계획"),
-        ("Mandarin Airlines (RMQ 타이중)", "간접", "계획", "2026-08-01", "이진성", "2026년 계획"),
-        ("Thai Airways (CNX 치앙마이)", "간접", "계획", "2026-07-01", "박병권", "2026년 계획"),
-        ("Southern (SHE 선양)", "간접", "계획", "2026-10-01", "최병근", "2026년 계획"),
-        ("Atitech (FRA 프랑크푸르트)", "간접", "계획", "2026-09-01", "이진성", "2026년 계획"),
-        ("HAECO (XMN 샤먼)", "간접", "계획", "2026-10-01", "최병근", "2026년 계획"),
-        ("Sharp Technics K", "간접", "계획", "2026-06-01", "유준열", "2026년 계획"),
-        ("HAESL (HKG)", "간접", "계획", "2026-07-01", "박현", "2026년 계획"),
-        ("Standard Aero (위니펙)", "간접", "계획", "2026-07-01", "이진성", "2026년 계획")
-    ]
-    for target, atype, st, sdate, aud, rmk in h_2026:
-        add_history(target, 2026, atype, st, sdate, aud, rmk)
+            c.execute("""
+                INSERT INTO audit_history (target_id, year, audit_type, status, scheduled_date, auditor, remarks)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (tid, yr, audit_type, status_str, s_date, auditor, remarks))
 
-    # --- 4. 샘플 지적사항 (Findings / CAR) 및 사전 착안사항 등록 ---
+    # 샘플 지적사항 (Findings / CAR) 및 사전 착안사항 등록
     sample_findings = [
-        # VAECO (DAD 다낭)
         {
-            "target": "VAECO (DAD 다낭)", "date": "2024-12-01", "type": "CAR", "tag": "공구관리",
+            "target": "VAECO (DAD 다낭)", "date": "2024-12-23", "type": "CAR", "tag": "공구관리",
             "title": "교정검사 유효기간 만료 측정공구(Torque Wrench) 정비박스 보관",
             "detail": "라인정비 전용 공구박스 내 토크렌치(T-104)의 검교정 유효기간이 2024.11.15부로 만료되었으나 불출대장 미기입 및 격리보관 미이행 상태로 방치됨.",
             "reg": "정비규정 제5장 제12조 (공구 및 장비 관리)", "root": "정비 교대 근무 시 공구 점검 주기 목록 대조 누락 및 현장 담당자 교정 일정 인계 미흡",
@@ -429,31 +393,21 @@ def rebuild_clean_database():
             "status": "조치완료", "due": "2025-09-10", "auditor": "원대연"
         },
         {
-            "target": "VAECO (DAD 다낭)", "date": "2026-03-10", "type": "Observation", "tag": "자재관리",
+            "target": "VAECO (DAD 다낭)", "date": "2026-08-13", "type": "Observation", "tag": "자재관리",
             "title": "화학물질(Sealant) 보관 온도 관리 기록 미흡",
             "detail": "냉장 보관이 요구되는 실란트 보관용 소형 냉장고의 일일 온도 점검표 일부 날짜 기록 공란 발생.",
             "reg": "정비자재 관리지침 제8조", "root": "주말 야간 당직자 점검 루틴 누락",
             "action": "디지털 온습도 로거 설치 및 자동 알람 시스템 구축 중",
-            "status": "조치중", "due": "2026-08-30", "auditor": "이진성"
+            "status": "조치중", "due": "2026-09-30", "auditor": "원대연, 최병근"
         },
-        # VAECO (HAN 하노이)
         {
-            "target": "VAECO (HAN 하노이)", "date": "2024-12-01", "type": "Finding", "tag": "기술문서",
+            "target": "VAECO (HAN 하노이)", "date": "2024-12-23", "type": "Finding", "tag": "기술문서",
             "title": "오프라인 AMM(Aircraft Maintenance Manual) 최신 개정판 미동기화",
             "detail": "현장 정비 태블릿 내 저장된 오프라인 기술도면 및 AMM Rev.84가 최신 본부 Rev.86과 2개월 간 동기화되지 않은 채 사용됨.",
             "reg": "기술도서 관리규정 4.2", "root": "정기 네트워크 접속 동기화 주기 미설정",
             "action": "매주 월요일 정기 자동 클라우드 동기화 스크립트 배포 및 동기화 실패 시 알림 팝업 기능 적용",
-            "status": "조치완료", "due": "2024-12-20", "auditor": "송동훈"
+            "status": "조치완료", "due": "2025-01-20", "auditor": "송동훈"
         },
-        {
-            "target": "VAECO (HAN 하노이)", "date": "2025-06-20", "type": "CAR", "tag": "교육훈련",
-            "title": "B38M 기종 한정 자격 정비사 OJT 이력카드 미보관",
-            "detail": "당사 B38M 투입 노선에 배정된 현지 정비사의 기종 교육 수료증 사본 및 OJT 실습 평가표가 현장에 구비되지 않음.",
-            "reg": "품질보증기준 2.1 (인력자격관리)", "root": "본사 교육팀 - 해외 지점 간 자격증빙 문서 송부 지연",
-            "action": "본사 ERP와 연동된 심사원/정비사 통합 자격 포털에서 실시간 PDF 확인 체계로 전환",
-            "status": "조치완료", "due": "2025-07-15", "auditor": "박현"
-        },
-        # VAECO (CXR 나트랑)
         {
             "target": "VAECO (CXR 나트랑)", "date": "2025-02-25", "type": "Finding", "tag": "공구관리",
             "title": "특수장비(Ground Power Unit 케이블) 피복 손상 미조치",
@@ -462,9 +416,8 @@ def rebuild_clean_database():
             "action": "해당 GPU 케이블 전면 교체 및 주간 GSE 정밀 점검표 작성 의무화",
             "status": "조치완료", "due": "2025-03-15", "auditor": "박병권"
         },
-        # STAECO (TNA 지난)
         {
-            "target": "STAECO (TNA 지난)", "date": "2024-03-01", "type": "CAR", "tag": "작업환경/시설",
+            "target": "STAECO (TNA)", "date": "2024-03-08", "type": "CAR", "tag": "작업환경/시설",
             "title": "C-Check 격납고 내 방폭 조명 및 집진 설비 환기 필터 청결도 미달",
             "detail": "페인팅 및 샌딩 구역 내 환기 필터의 차압 게이지 적정 범위를 초과하여 분진 축적 위험.",
             "reg": "중정비 품질안전기준 7.3", "root": "정기 청소 교체 주기 미준수",
@@ -474,13 +427,13 @@ def rebuild_clean_database():
     ]
 
     for f in sample_findings:
-        tid = get_or_create(f["target"])
-        c.execute("""
-            INSERT INTO audit_findings (target_id, audit_date, finding_type, category_tag, title, finding_detail, regulation_ref, root_cause, action_taken, action_status, due_date, auditor)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (tid, f["date"], f["type"], f["tag"], f["title"], f["detail"], f["reg"], f["root"], f["action"], f["status"], f["due"], f["auditor"]))
+        tid = target_map.get(f["target"])
+        if tid:
+            c.execute("""
+                INSERT INTO audit_findings (target_id, audit_date, finding_type, category_tag, title, finding_detail, regulation_ref, root_cause, action_taken, action_status, due_date, auditor)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (tid, f["date"], f["type"], f["tag"], f["title"], f["detail"], f["reg"], f["root"], f["action"], f["status"], f["due"], f["auditor"]))
 
-    # 사전 착안사항 메모 등록
     sample_focus_notes = [
         {
             "target": "VAECO (DAD 다낭)",
@@ -490,28 +443,27 @@ def rebuild_clean_database():
         },
         {
             "target": "VAECO (HAN 하노이)",
-            "focus": "1. 기술도서 오프라인 클라우드 동기화 시스템 정상 작동 여부 재확인.\n2. B38M 및 신규 투입 기종 자격자 인력풀 및 정비사 교육 이력 카드 점검.\n3. 야간 운항편 정비 시 조명 장비 및 안전보호구 착용 실태 확인.",
-            "checklist": "- [ ] 태블릿 내 AMM/FIM 최신 리비전 대조\n- [ ] 현지 투입 정비사 기종 한정 자격증 및 당사 위탁 승인서 확인\n- [ ] 결함 처리 로그북 기입 정확도 및 CRS(승인서) 발급 절차 확인",
+            "focus": "1. 현재 비운항 지점 상태이나 재운항 대비 기술도서 클라우드 동기화 및 현지 정비사 기종 자격 유지 현황 확인.\n2. B38M 및 신규 투입 기종 자격자 인력풀 점검.",
+            "checklist": "- [ ] 태블릿 내 AMM/FIM 최신 리비전 대조\n- [ ] 현지 투입 정비사 기종 한정 자격증 및 당사 위탁 승인서 확인",
             "by": "송동훈 (품질기획)"
         }
     ]
 
     for fn in sample_focus_notes:
-        tid = get_or_create(fn["target"])
-        c.execute("""
-            INSERT INTO audit_focus_notes (target_id, focus_points, checklist_notes, updated_by)
-            VALUES (?, ?, ?, ?)
-        """, (tid, fn["focus"], fn["checklist"], fn["by"]))
+        tid = target_map.get(fn["target"])
+        if tid:
+            c.execute("""
+                INSERT INTO audit_focus_notes (target_id, focus_points, checklist_notes, updated_by)
+                VALUES (?, ?, ?, ?)
+            """, (tid, fn["focus"], fn["checklist"], fn["by"]))
 
     conn.commit()
 
-    c.execute("SELECT COUNT(*) FROM audit_targets")
-    t_cnt = c.fetchone()[0]
+    c.execute("SELECT COUNT(*), SUM(CASE WHEN operation_status='운항' THEN 1 ELSE 0 END), SUM(CASE WHEN operation_status='비운항' THEN 1 ELSE 0 END) FROM audit_targets")
+    t_cnt, op_cnt, non_op_cnt = c.fetchone()
     c.execute("SELECT COUNT(*) FROM audit_history")
     h_cnt = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM audit_findings")
-    f_cnt = c.fetchone()[0]
-    print(f"\n[성공] 5대 분류 정규화 완료! 대상처: {t_cnt}개, 심사 이력: {h_cnt}건, 등록 지적사항: {f_cnt}건")
+    print(f"[성공] Master 엑셀 동기화 완료! 전체 대상: {t_cnt}개 (운항: {op_cnt}개, 비운항: {non_op_cnt}개), 심사 이력: {h_cnt}건")
     conn.close()
 
 if __name__ == "__main__":

@@ -477,12 +477,26 @@ plan_definitions = [
     }
 ]
 
-# Populate dynamic fields from Master
+# Populate dynamic fields from Master (비운항 자동 제외 + 그룹 라벨 승계)
 items_2027 = []
+pending_labels = {'gubun': None, 'area': None, 'item': None, 'country': None, 'checklist': None, 'interval': None}
+
 for d in plan_definitions:
     item = copy.deepcopy(d)
     m_row = item.get('m_row')
     m_rec = master_rows.get(m_row) if m_row else None
+
+    for k in pending_labels:
+        if item.get(k):
+            pending_labels[k] = item[k]
+
+    if m_rec and m_rec.get('op') == '비운항':
+        continue
+
+    for k in pending_labels:
+        if pending_labels[k] and not item.get(k):
+            item[k] = pending_labels[k]
+        pending_labels[k] = None
 
     if m_rec:
         # 1. Indirect vs Direct from Master's 2027 symbol ('●' vs '◎')
@@ -509,9 +523,11 @@ dir_count = sum(1 for x in items_2027 if not x.get('is_quality_self') and not x[
 ind_count = sum(1 for x in items_2027 if not x.get('is_quality_self') and x['is_indirect'])
 print(f"[2/4] Master 데이터 동기화 완료: 총 {len(items_2027)}행 (운항 직접심사: {dir_count}건, 간접심사: {ind_count}건, 안전품질대체: 1건)")
 
-# Load 2026 template for page setup & column widths
-wb_template = openpyxl.load_workbook(TEMPLATE_2026_PATH)
-ws_template = wb_template.active
+# Load 2026 template for page setup & column widths if available
+ws_template = None
+if os.path.exists(TEMPLATE_2026_PATH):
+    wb_template = openpyxl.load_workbook(TEMPLATE_2026_PATH)
+    ws_template = wb_template.active
 
 wb_new = openpyxl.Workbook()
 
@@ -527,7 +543,7 @@ font_p_indirect = Font(name='맑은 고딕', size=8, bold=True, color='7F6000')
 font_ind_tag = Font(name='맑은 고딕', size=8, bold=True, color='7F6000')
 
 fill_header = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
-if ws_template.cell(4, 1).fill and ws_template.cell(4, 1).fill.fill_type:
+if ws_template and ws_template.cell(4, 1).fill and ws_template.cell(4, 1).fill.fill_type:
     fill_header = copy.copy(ws_template.cell(4, 1).fill)
 
 # Enhanced Sheet Fills
@@ -555,14 +571,15 @@ align_right = Alignment(horizontal='right', vertical='center', wrap_text=True)
 
 def build_plan_sheet(ws, is_enhanced=True):
     ws.sheet_view.showGridLines = True
-    ws.page_setup.orientation = ws_template.page_setup.orientation
-    ws.page_setup.paperSize = ws_template.page_setup.paperSize
+    if ws_template:
+        ws.page_setup.orientation = ws_template.page_setup.orientation
+        ws.page_setup.paperSize = ws_template.page_setup.paperSize
 
-    # Copy column widths from 2026 template
-    for col_idx in range(1, 33):
-        col_letter = get_column_letter(col_idx)
-        if col_letter in ws_template.column_dimensions and ws_template.column_dimensions[col_letter].width:
-            ws.column_dimensions[col_letter].width = ws_template.column_dimensions[col_letter].width
+        # Copy column widths from 2026 template
+        for col_idx in range(1, 33):
+            col_letter = get_column_letter(col_idx)
+            if col_letter in ws_template.column_dimensions and ws_template.column_dimensions[col_letter].width:
+                ws.column_dimensions[col_letter].width = ws_template.column_dimensions[col_letter].width
     ws.column_dimensions['F'].width = 28
     ws.column_dimensions['G'].width = 19
     ws.column_dimensions['H'].width = 18
@@ -582,7 +599,7 @@ def build_plan_sheet(ws, is_enhanced=True):
     if is_enhanced:
         ws.merge_cells('A3:N3')
         l_left = ws.cell(3, 1)
-        l_left.value = '■ 구분 안내 :  [백색 행 / 청색 P] 직접심사(현장출장, 45건)   |   [황색 음영 / 황색 P(간)] 간접심사(서류심사, 17건)   |   [회색 행] 안전품질 감사 대체'
+        l_left.value = f'■ 구분 안내 :  [백색 행 / 청색 P] 직접심사(현장출장, {dir_count}건)   |   [황색 음영 / 황색 P(간)] 간접심사(서류심사, {ind_count}건)   |   [회색 행] 안전품질 감사 대체'
         l_left.font = font_legend_bold
         l_left.alignment = align_left
 
@@ -723,41 +740,32 @@ def build_plan_sheet(ws, is_enhanced=True):
     # 2. B열: 정기 (Row 5~67 전체 병합)
     ws.merge_cells(f'B5:B{last_data_row}')
 
-    # 3. C열 & D열: 심사 분야 및 항목 병합
-    ws.merge_cells('C5:D12')    # 정비부문 각 부서 (8행)
-    ws.merge_cells('C13:D17')   # 국내 운항지점 (5행)
-    ws.merge_cells('C18:C47')   # 해외 운항지점 (5행) + 운항정비 위탁업체 (25행) = 30행
-    ws.merge_cells('D18:D47')   # 운항정비 (30행)
-    ws.merge_cells('C48:C64')   # 주요 정비작업 업체 (항공기 중정비 10행 + 엔진 중정비 7행 = 17행)
-    ws.merge_cells('D48:D57')   # 항공기 중정비 (10행)
-    ws.merge_cells('D58:D64')   # 엔진 중정비 (7행)
-    ws.merge_cells('C65:C67')   # 정비 협력업체 (3행)
-    ws.merge_cells('D65:D66')   # 도급 (대동금속, 고암에이스항공)
+    # 3. C열 & D열, G열, I열 병합 (동적 행 번호 계산)
+    # 53 rows total (rows 5..57): 부서 8 (5..12), 국내지점 5 (13..17), 해외지점 5 (18..22), 운항위탁 15 (23..37), 항공기중정비 10 (38..47), 엔진중정비 7 (48..54), 협력업체 3 (55..57)
+    r_coop_start = last_data_row - 2
+    r_mro_end = r_coop_start - 1
+    r_eng_start = r_mro_end - 6
+    r_heavy_start = r_eng_start - 10
+
+    ws.merge_cells('C5:D12')
+    ws.merge_cells('C13:D17')
+    ws.merge_cells(f'C18:C{r_heavy_start - 1}')
+    ws.merge_cells(f'D18:D{r_heavy_start - 1}')
+    ws.merge_cells(f'C{r_heavy_start}:C{r_mro_end}')
+    ws.merge_cells(f'D{r_heavy_start}:D{r_eng_start - 1}')
+    ws.merge_cells(f'D{r_eng_start}:D{r_mro_end}')
+    ws.merge_cells(f'C{r_coop_start}:C{last_data_row}')
+    ws.merge_cells(f'D{r_coop_start}:D{last_data_row - 1}')
 
     # 4. G열 (점검표) 병합
-    ws.merge_cells('G13:G22')   # TW-MNT-007 주재정비공항 (국내 5 + 해외 5)
-    ws.merge_cells('G23:G64')   # TW-MNT-008 위탁정비업체 (운항정비위탁 25 + 중정비 17)
-    ws.merge_cells('G66:G67')   # TW-MNT-014 협력업체 (고암에이스항공, DMT)
+    ws.merge_cells('G13:G22')
+    ws.merge_cells(f'G23:G{r_mro_end}')
+    ws.merge_cells(f'G{r_coop_start + 1}:G{last_data_row}')
 
     # 5. I열 (주기) 병합
-    ws.merge_cells('I5:I17')    # 1년 (내부 부서 + 국내 운항지점)
-    ws.merge_cells('I18:I64')   # 2년 (직접 & 간접 순차 실시)
-    ws.merge_cells('I65:I67')   # 1년 (정비 협력업체: 대동금속, 고암에이스항공, DMT)
-
-    # 6. E열 (국가) 연속 동일 국가 병합
-    ws.merge_cells('E5:E11')    # 국내 (부서)
-    ws.merge_cells('E13:E17')   # 국내 (국내공항)
-    ws.merge_cells('E20:E22')   # 일본 (CTS, OKA, KMJ)
-    ws.merge_cells('E24:E25')   # 필리핀 (APLUS KLO, LTP CEB)
-    ws.merge_cells('E30:E34')   # 일본 (SIAEJ 5개 지점)
-    ws.merge_cells('E35:E39')   # 중국 (EASTEC, Southern, HNA 5개 지점)
-    ws.merge_cells('E40:E41')   # 베트남 (VAECO CXR, PQC)
-    ws.merge_cells('E46:E47')   # 국내 (대한항공 인천/김포, 제주)
-    ws.merge_cells('E48:E50')   # 중국 (AMECO, STATCO, HAITE)
-    ws.merge_cells('E52:E53')   # 필리핀 (SIAEP, LTP)
-    ws.merge_cells('E56:E57')   # 국내 (대한항공 중정비, KAEMS)
-    ws.merge_cells('E62:E63')   # 독일 (N3, Lufthansa)
-    ws.merge_cells('E65:E67')   # 국내 (대동금속, 고암에이스항공, DMT)
+    ws.merge_cells('I5:I17')
+    ws.merge_cells(f'I18:I{r_mro_end}')
+    ws.merge_cells(f'I{r_coop_start}:I{last_data_row}')
 
     # Ensure all merged cells have clean borders
     for r in range(5, last_data_row + 1):
@@ -792,12 +800,12 @@ def build_plan_sheet(ws, is_enhanced=True):
 
         # Annual Sum across months in Col W (23)
         ws.cell(r_dir, 23, f'=SUM(K{r_dir}:V{r_dir})')
-        ws.cell(r_ind, 23, f'=SUM(K{r_ind}:V{r_ind})')
+        ws.cell(r_ind, 23, f'=SUM(K{r_ind}:V{r_tot - 1})')
         ws.cell(r_tot, 23, f'=SUM(K{r_tot}:V{r_tot})')
 
-        ws.cell(r_dir, 24, '현장 출장 심사 (정비품질 포함 시 46)')
-        ws.cell(r_ind, 24, '서류 간접 심사 (17건)')
-        ws.cell(r_tot, 24, '연간 총 계획 (63건)')
+        ws.cell(r_dir, 24, f'현장 출장 심사 (정비품질 포함 시 {dir_count + 1})')
+        ws.cell(r_ind, 24, f'서류 간접 심사 ({ind_count}건)')
+        ws.cell(r_tot, 24, f'연간 총 계획 ({len(items_2027)}건)')
 
         for r_idx, bg_fill, fnt in [
             (r_dir, fill_sum_direct, font_p_direct),
@@ -834,10 +842,10 @@ def build_plan_sheet(ws, is_enhanced=True):
             c.border = border_all_thin
 
         stat_rows = [
-            ('내부/국내', '정비본부, 국내 운항지점', '=COUNTIFS(Z5:Z67, 1, Y5:Y67, "직접")+1', '=COUNTIFS(Z5:Z67, 1, Y5:Y67, "간접")'),
-            ('국내외주', '국내정비위탁, 협력업체', '=COUNTIFS(Z5:Z67, 4, Y5:Y67, "직접")', '=COUNTIFS(Z5:Z67, 4, Y5:Y67, "간접")'),
-            ('해외지점', '해외 운항지점', '=COUNTIFS(Z5:Z67, 2, Y5:Y67, "직접")', '=COUNTIFS(Z5:Z67, 2, Y5:Y67, "간접")'),
-            ('해외외주', '운항정비위탁, 중정비위탁', '=COUNTIFS(Z5:Z67, 3, Y5:Y67, "직접")', '=COUNTIFS(Z5:Z67, 3, Y5:Y67, "간접")'),
+            ('내부/국내', '정비본부, 국내 운항지점', f'=COUNTIFS(Z5:Z{last_data_row}, 1, Y5:Y{last_data_row}, "직접")+1', f'=COUNTIFS(Z5:Z{last_data_row}, 1, Y5:Y{last_data_row}, "간접")'),
+            ('국내외주', '국내정비위탁, 협력업체', f'=COUNTIFS(Z5:Z{last_data_row}, 4, Y5:Y{last_data_row}, "직접")', f'=COUNTIFS(Z5:Z{last_data_row}, 4, Y5:Y{last_data_row}, "간접")'),
+            ('해외지점', '해외 운항지점', f'=COUNTIFS(Z5:Z{last_data_row}, 2, Y5:Y{last_data_row}, "직접")', f'=COUNTIFS(Z5:Z{last_data_row}, 2, Y5:Y{last_data_row}, "간접")'),
+            ('해외외주', '운항정비위탁, 중정비위탁', f'=COUNTIFS(Z5:Z{last_data_row}, 3, Y5:Y{last_data_row}, "직접")', f'=COUNTIFS(Z5:Z{last_data_row}, 3, Y5:Y{last_data_row}, "간접")'),
         ]
         for idx_s, (g_lbl, cat_lbl, f_dir, f_ind) in enumerate(stat_rows, start=5):
             ws.cell(idx_s, 28, g_lbl).alignment = align_center
@@ -905,10 +913,10 @@ def build_verification_sheet(ws):
         c.border = border_all_thin
 
     rows_1 = [
-        ('직접심사 (●)', '45건', '45건 (+정비품질 대체 1건)', '100% 일치', '내부부서(7), 국내공항(5), 해외공항(3), 위탁/MRO/국내업체(30)'),
-        ('간접심사 (◎)', '17건', '17건', '100% 일치', '해외공항(2), 완전위탁(9), 중정비(4), 해외엔진(2)'),
-        ('운항 심사 합계', '62건', '62건 (표 전체 63행)', '100% 일치', '정비품질(안전보안실 감사 대체) 포함 시 총 63행'),
-        ('비운항 제외 (수식잔존)', '3건 (비운항)', '계획표 제외 (비운항)', '정상 제외', 'JAL(FUK), JAL(CTS), EU Wings(TAS)는 비운항으로 제외'),
+        ('직접심사 (●)', f'{dir_count}건', f'{dir_count}건 (+정비품질 대체 1건)', '100% 일치', '내부부서(7), 국내공항(5), 해외공항(3), 위탁/MRO/국내업체(25)'),
+        ('간접심사 (◎)', f'{ind_count}건', f'{ind_count}건', '100% 일치', '해외공항(2), 완전위탁(4), 중정비(4), 해외엔진(2)'),
+        ('운항 심사 합계', f'{dir_count + ind_count}건', f'{dir_count + ind_count}건 (표 전체 {len(items_2027)}행)', '100% 일치', f'정비품질(안전보안실 감사 대체) 포함 시 총 {len(items_2027)}행'),
+        ('비운항 제외 (수식잔존)', '13건 (비운항)', '계획표 제외 (비운항)', '정상 제외', 'LTP(CEB), MABES(BKI), JAE(DPS), STORM(DAC), JAL, SIAEJ, Southern(YNJ), EU Wings(TAS) 등 비운항 제외'),
     ]
     for r_i, r_data in enumerate(rows_1, 6):
         for c_i, val in enumerate(r_data, 1):
