@@ -1141,6 +1141,7 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             auditor_id = int(data["id"])
             conn = get_db_connection()
             c = conn.cursor()
+            c.execute("DELETE FROM users WHERE auditor_id = ? AND role != 'admin'", (auditor_id,))
             c.execute("DELETE FROM auditors WHERE id = ?", (auditor_id,))
             conn.commit()
             conn.close()

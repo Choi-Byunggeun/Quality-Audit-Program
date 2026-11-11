@@ -2458,7 +2458,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const evalDueClass = a.eval_status === '만료' ? 'date-expired' : (a.eval_status === '임박' ? 'date-warning' : '');
 
             return `<tr class="${rowClass}" style="cursor:default;">
-                <td>${a.id}</td>
+                <td>${i + 1}</td>
                 <td>
                     <div style="font-weight:700;">${a.name_kr}</div>
                     <div style="font-size:11px; color:var(--text-secondary);">${a.name_en || ''}</div>
