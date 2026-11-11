@@ -180,6 +180,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 북미
         "YVR": { name: "밴쿠버", country: "캐나다", continent: "북미", lat: 49.19, lon: -123.18 },
+        "YWG": { name: "위니펙(StandardAero)", country: "캐나다", continent: "북미", lat: 49.90, lon: -97.23 },
         "STDAERO": { name: "댈러스(StandardAero)", country: "미국", continent: "북미", lat: 32.77, lon: -96.79 }
     };
 
@@ -190,58 +191,48 @@ document.addEventListener("DOMContentLoaded", () => {
     const CATEGORY_META = [
         {
             key: "cat1",
-            label: "국내 주재정비",
-            color: "#58a6ff",
-            icon: "fa-house",
+            label: "내부심사",
+            color: "#38bdf8",
+            icon: "fa-building-user",
             badgeClass: "cat-badge-1",
             rowClass: "cat-row-1",
-            // DB에 저장된 category 값 목록 (부분일치 포함)
-            match: ["국내주재", "국내 주재", "국내업체"]
+            match: ["내부심사", "내부", "본부", "정비본부"]
         },
         {
             key: "cat2",
-            label: "해외 주재정비",
-            color: "#79c0ff",
-            icon: "fa-plane",
+            label: "운항정비 지점",
+            color: "#10b981",
+            icon: "fa-location-dot",
             badgeClass: "cat-badge-2",
             rowClass: "cat-row-2",
-            match: ["해외주재", "해외 주재", "해외운항지점"]
+            match: ["운항정비 지점", "운항정비지점", "운항지점", "주재"]
         },
         {
             key: "cat3",
-            label: "국내 운항정비 위탁",
-            color: "#3fb950",
-            icon: "fa-screwdriver-wrench",
+            label: "운항정비 위탁",
+            color: "#f59e0b",
+            icon: "fa-handshake",
             badgeClass: "cat-badge-3",
             rowClass: "cat-row-3",
-            match: ["국내운항", "국내 운항", "완전위탁"]
+            match: ["운항정비 위탁", "운항정비위탁", "운항위탁", "완전위탁"]
         },
         {
             key: "cat4",
-            label: "해외 운항정비 위탁",
-            color: "#39d353",
-            icon: "fa-globe",
-            badgeClass: "cat-badge-4",
-            rowClass: "cat-row-4",
-            match: ["해외운항", "해외 운항"]
+            label: "중정비 위탁",
+            color: "#ec4899",
+            icon: "fa-warehouse",
+            badgeClass: "cat-badge-5",
+            rowClass: "cat-row-5",
+            match: ["중정비 위탁", "중정비위탁", "중정비", "엔진"]
         },
         {
             key: "cat5",
-            label: "항공기 중정비 위탁",
-            color: "#bc8cff",
-            icon: "fa-gears",
-            badgeClass: "cat-badge-5",
-            rowClass: "cat-row-5",
-            match: ["중정비", "중 정비"]
-        },
-        {
-            key: "cat6",
-            label: "엔진 중정비 위탁",
-            color: "#f0883e",
-            icon: "fa-fire-flame-curved",
+            label: "정비 협력업체",
+            color: "#a855f7",
+            icon: "fa-toolbox",
             badgeClass: "cat-badge-6",
             rowClass: "cat-row-6",
-            match: ["엔진", "엔좄", "engine"]
+            match: ["정비 협력업체", "정비협력업체", "협력업체", "국내업체"]
         }
     ];
 
@@ -273,7 +264,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function resolveStation(stationName, category) {
         if (!stationName) stationName = "";
-        
+        const upper = stationName.toUpperCase();
+        const lower = stationName.toLowerCase();
+
+        if (stationName.includes("위니펙") || lower.includes("standard aero") || lower.includes("standardaero")) {
+            return { ...STATION_DB["YWG"], code: "YWG" };
+        }
+        if (upper.includes("WALES") || stationName.includes("웨일스") || upper.includes("GE ENGINE")) {
+            return { ...STATION_DB["CWL"], code: "CWL" };
+        }
+        if (lower.includes("lufthansa")) {
+            return { ...STATION_DB["HAM"], code: "HAM" };
+        }
+        if (lower.includes("st engineering")) {
+            return { ...STATION_DB["SIN"], code: "SIN" };
+        }
+        if (upper.includes("XIAMEN")) {
+            return { ...STATION_DB["XMN"], code: "XMN" };
+        }
+        if (lower.includes("sharp technics") || upper.includes("GE ON WINGS")) {
+            return { ...STATION_DB["ICN"], code: "ICN" };
+        }
+        if (lower.includes("koreanair") && stationName.includes("중정비")) {
+            return { ...STATION_DB["PUS"], code: "PUS" };
+        }
+        if (lower.includes("koreanair")) {
+            return { ...STATION_DB["ICN"], code: "ICN" };
+        }
+
         const matches = stationName.match(/\b([A-Z]{3})\b/g);
         if (matches) {
             for (const code of matches) {
@@ -289,11 +307,11 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        if (category === "국내업체" || stationName.includes("기술") || stationName.includes("기획") || stationName.includes("자재") || stationName.includes("통제") || stationName.includes("운항정비")) {
-            return { name: "서울(본사/공항)", country: "대한민국", continent: "아시아", lat: 37.56, lon: 126.97, code: "HQ" };
+        if (category === "국내업체" || (category && category.includes("협력업체")) || (category && category.includes("내부")) || stationName.includes("기술") || stationName.includes("기획") || stationName.includes("자재") || stationName.includes("통제") || stationName.includes("운항정비") || stationName.includes("파트") || stationName.includes("품질")) {
+            return { name: "서울/인천(본사)", country: "대한민국", continent: "아시아", lat: 37.55, lon: 126.80, code: "SEL" };
         }
         
-        return { name: stationName, country: "기타", continent: "아시아", lat: 36.5, lon: 127.5, code: "ETC" };
+        return { name: stationName, country: "대한민국", continent: "아시아", lat: 36.5, lon: 127.5, code: "KOR" };
     }
 
     function latLonToPercent(lat, lon) {
@@ -388,6 +406,9 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (currentTab === "mypage") {
             pageTitle.textContent = "내 심사 일정 (마이페이지)";
             pageSubtitle.textContent = "본인에게 배정된 심사 일정과 자격 만료/보수교육 주기를 확인합니다.";
+        } else if (currentTab === "analysis") {
+            pageTitle.textContent = "심사 대상 분석 (사전 심사 준비)";
+            pageSubtitle.textContent = "과거 심사 이력, 지적 및 개선조치(Finding/CAR) 사항을 분석하고 차기 심사 착안사항을 준비합니다.";
         } else if (currentTab === "calendar") {
             pageTitle.textContent = "연간 세부 계획";
             pageSubtitle.textContent = `2026~2030년 5개년 자동 롤링 매트릭스 및 ${selectedYear}년 캘린더 계획입니다.`;
@@ -419,6 +440,8 @@ document.addEventListener("DOMContentLoaded", () => {
             loadDashboardData();
         } else if (currentTab === "mypage") {
             loadMyPageData();
+        } else if (currentTab === "analysis") {
+            loadAnalysisTreeData();
         } else if (currentTab === "calendar") {
             if (planSubView === "matrix") {
                 loadMatrixData();
@@ -442,9 +465,56 @@ document.addEventListener("DOMContentLoaded", () => {
     // 1. 대시보드 데이터 렌더링
     // --------------------------------------------------------
     let latestDashboardData = null;
+    let multiYearScheduleMap = {}; // target_id -> { 2026: ..., 2027: ... }
+    let mapPanelAuditTypeFilter = "all"; // 'all' | '직접' | '간접'
+    let showMapFlightRoutes = true;
+    let markerByTargetId = {}; // target_id -> { marker, lat, lon }
+
+    function syncYearSelectorsUI() {
+        if (globalYearSelect && globalYearSelect.value !== String(selectedYear)) {
+            globalYearSelect.value = String(selectedYear);
+        }
+        document.querySelectorAll("#map-year-quick-bar .map-year-chip").forEach(btn => {
+            if (btn.getAttribute("data-year") === String(selectedYear)) {
+                btn.classList.add("active");
+            } else {
+                btn.classList.remove("active");
+            }
+        });
+    }
+
+    async function ensureMultiYearScheduleLoaded() {
+        if (Object.keys(multiYearScheduleMap).length > 0) return;
+        const rows = await apiFetch("/api/multi_year_schedule?start_year=2026&end_year=2030");
+        if (Array.isArray(rows)) {
+            rows.forEach(r => {
+                multiYearScheduleMap[r.id] = r.schedule || {};
+            });
+        }
+    }
+
     async function loadDashboardData() {
-        const data = await apiFetch(`/api/dashboard?year=${selectedYear}`);
+        syncYearSelectorsUI();
+        const [data] = await Promise.all([
+            apiFetch(`/api/dashboard?year=${selectedYear}`),
+            ensureMultiYearScheduleLoaded()
+        ]);
         if (!data) return;
+
+        // 2024, 2025년 등 과거 실적 연도는 실제 수행 기록(id != null)만 필터링
+        if (parseInt(selectedYear, 10) < 2026 && Array.isArray(data.year_audits)) {
+            const realAudits = data.year_audits.filter(a => a.id !== null && a.id !== undefined);
+            if (realAudits.length > 0) {
+                data.year_audits = realAudits;
+                const dCnt = realAudits.filter(a => a.audit_type === "직접").length;
+                const iCnt = realAudits.filter(a => a.audit_type !== "직접").length;
+                data.stats = {
+                    total: realAudits.length,
+                    direct: dCnt,
+                    indirect: iCnt
+                };
+            }
+        }
 
         latestDashboardData = data;
 
@@ -490,47 +560,166 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --------------------------------------------------------
-    // 월드맵 렌더링
+    // Leaflet.js 초고해상도 인터랙티브 세계지도 엔진 (API Key 불필요 + 벡터 국경선 + 글로벌 항로)
     // --------------------------------------------------------
+    let leafletMap = null;
+    let leafletMarkersLayer = null;
+    let leafletRoutesLayer = null;
+    let leafletTileLayer = null;
+    let leafletLabelTileLayer = null;
+    let leafletGeoJsonLayer = null;
+    let worldGeoJsonData = null;
+
+    // API 키 없이 무료로 동작하는 Esri & OpenStreetMap 글로벌 타일 서버
+    const darkTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}';
+    const darkLabelTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
+    const lightTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+    const tileAttrib = '&copy; Esri, OpenStreetMap contributors';
+
+    function getGeoJsonStyle() {
+        if (mapTheme === 'dark') {
+            return {
+                fillColor: '#152642',
+                fillOpacity: 0.48,
+                color: '#38bdf8',
+                weight: 0.85,
+                opacity: 0.42
+            };
+        }
+        return {
+            fillColor: '#3b82f6',
+            fillOpacity: 0.05,
+            color: '#2563eb',
+            weight: 0.8,
+            opacity: 0.3
+        };
+    }
+
+    async function loadWorldGeoJsonOverlay() {
+        if (!leafletMap) return;
+        if (!worldGeoJsonData) {
+            try {
+                const res = await fetch('/static/world_countries.json');
+                if (res.ok) {
+                    worldGeoJsonData = await res.json();
+                }
+            } catch (e) {
+                console.warn("GeoJSON 로드 생략:", e);
+            }
+        }
+        if (worldGeoJsonData && leafletMap) {
+            if (leafletGeoJsonLayer) {
+                leafletMap.removeLayer(leafletGeoJsonLayer);
+            }
+            leafletGeoJsonLayer = L.geoJSON(worldGeoJsonData, {
+                style: getGeoJsonStyle,
+                interactive: false
+            }).addTo(leafletMap);
+            leafletGeoJsonLayer.bringToBack();
+        }
+    }
+
+    function initLeafletMap() {
+        const container = document.getElementById("leaflet-world-map");
+        if (!container || typeof L === 'undefined') return;
+
+        if (!leafletMap) {
+            leafletMap = L.map('leaflet-world-map', {
+                center: [26.0, 95.0], // 전 세계(유럽~중동~아시아~오세아니아~북미) 한눈에 조망
+                zoom: 3,
+                minZoom: 2,
+                maxZoom: 13,
+                zoomControl: false,
+                attributionControl: false,
+                worldCopyJump: true
+            });
+
+            const initialTile = mapTheme === 'dark' ? darkTileUrl : lightTileUrl;
+            leafletTileLayer = L.tileLayer(initialTile, {
+                maxZoom: 16,
+                attribution: tileAttrib
+            }).addTo(leafletMap);
+
+            leafletLabelTileLayer = L.tileLayer(darkLabelTileUrl, {
+                maxZoom: 16,
+                opacity: mapTheme === 'dark' ? 0.75 : 0
+            }).addTo(leafletMap);
+
+            loadWorldGeoJsonOverlay();
+
+            leafletRoutesLayer = L.layerGroup().addTo(leafletMap);
+            leafletMarkersLayer = L.layerGroup().addTo(leafletMap);
+
+            leafletMap.on('zoomend', () => {
+                const zBadge = document.getElementById("map-zoom-level-badge");
+                if (zBadge && leafletMap) {
+                    zBadge.textContent = `Lv ${leafletMap.getZoom()}`;
+                }
+            });
+        }
+    }
+
+    // 인천(ICN) 허브에서 각 해외 지점까지 부드러운 곡선(Great-Circle 스타일 베지어 아크) 좌표 생성
+    function createCurvedArcLatLngs(startLat, startLon, endLat, endLon) {
+        const points = [];
+        const steps = 28;
+        const dLat = endLat - startLat;
+        const dLon = endLon - startLon;
+        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+        // 거리에 비례하는 북쪽 방향 곡률 오프셋
+        const archHeight = Math.min(14, dist * 0.16);
+
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const lat = startLat + dLat * t + Math.sin(Math.PI * t) * archHeight;
+            const lon = startLon + dLon * t;
+            points.push([lat, lon]);
+        }
+        return points;
+    }
+
     async function renderWorldMap() {
-        if (!mapMarkersLayer || !latestDashboardData) return;
+        if (!latestDashboardData) return;
+        syncYearSelectorsUI();
 
         if (mapYearLbl) mapYearLbl.textContent = `${selectedYear}년`;
         if (mapMonthLbl) mapMonthLbl.textContent = `${latestDashboardData.current_month}월`;
 
         let targetsToDisplay = [];
         if (mapFilterMode === "year") {
-            targetsToDisplay = latestDashboardData.year_audits;
+            targetsToDisplay = latestDashboardData.year_audits || [];
         } else if (mapFilterMode === "month") {
-            targetsToDisplay = latestDashboardData.this_month_audits;
+            targetsToDisplay = latestDashboardData.this_month_audits || [];
         } else if (mapFilterMode === "all") {
             if (allTargets.length === 0) {
                 allTargets = await apiFetch("/api/targets");
             }
-            targetsToDisplay = (allTargets || []).map(t => ({
-                target_id: t.id,
-                station_name: t.station_name,
-                category: t.category,
-                operation_status: t.operation_status,
-                base_interval: t.base_interval,
-                audit_type: "대상",
-                symbol: "●",
-                scheduled_date: "-",
-                auditor: "",
-                status: "등록",
-                remarks: ""
-            }));
+            targetsToDisplay = (allTargets || []).map(t => {
+                const schedForYear = (multiYearScheduleMap[t.id] || {})[selectedYear];
+                return {
+                    target_id: t.id,
+                    station_name: t.station_name,
+                    category: t.category,
+                    operation_status: t.operation_status,
+                    base_interval: t.base_interval,
+                    audit_type: schedForYear ? schedForYear.audit_type : (t.base_interval === 1 ? "직접" : "간접"),
+                    symbol: schedForYear ? schedForYear.symbol : "●",
+                    scheduled_date: schedForYear ? schedForYear.scheduled_date : "-",
+                    auditor: schedForYear ? schedForYear.auditor : "",
+                    status: schedForYear ? schedForYear.status : "등록",
+                    remarks: schedForYear ? schedForYear.remarks : ""
+                };
+            });
         }
 
         const continentCounts = { "아시아": 0, "유럽": 0, "오세아니아": 0, "북미": 0, "중동/기타": 0 };
         const enrichedItems = targetsToDisplay.map(item => {
             const locInfo = resolveStation(item.station_name, item.category);
-            const pos = latLonToPercent(locInfo.lat, locInfo.lon);
-            const isThisMonth = latestDashboardData.this_month_audits.some(a => a.target_id === item.target_id);
+            const isThisMonth = (latestDashboardData.this_month_audits || []).some(a => a.target_id === item.target_id);
             if (continentCounts[locInfo.continent] !== undefined) {
                 continentCounts[locInfo.continent]++;
             }
-            return { ...item, locInfo, pos, isThisMonth };
+            return { ...item, locInfo, isThisMonth };
         });
 
         document.getElementById("count-asia").textContent = continentCounts["아시아"] || 0;
@@ -539,111 +728,394 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("count-north-america").textContent = continentCounts["북미"] || 0;
         document.getElementById("count-middle-east").textContent = continentCounts["중동/기타"] || 0;
 
-        let filteredItems = enrichedItems;
+        let continentFiltered = enrichedItems;
         if (selectedContinent !== "all") {
-            filteredItems = enrichedItems.filter(item => item.locInfo.continent === selectedContinent);
+            continentFiltered = enrichedItems.filter(item => item.locInfo.continent === selectedContinent);
+        }
+
+        // 좌측 상단 연도별 품질심사 내역 패널 카운트 업데이트
+        const directTotalInView = continentFiltered.filter(i => i.audit_type === "직접").length;
+        const indirectTotalInView = continentFiltered.filter(i => i.audit_type !== "직접").length;
+        const elPanelTotal = document.getElementById("map-panel-total-cnt");
+        const elPanelDirect = document.getElementById("map-panel-direct-cnt");
+        const elPanelIndirect = document.getElementById("map-panel-indirect-cnt");
+        if (elPanelTotal) elPanelTotal.textContent = continentFiltered.length;
+        if (elPanelDirect) elPanelDirect.textContent = directTotalInView;
+        if (elPanelIndirect) elPanelIndirect.textContent = indirectTotalInView;
+
+        // 직접/간접 세부 필터 적용
+        let filteredItems = continentFiltered;
+        if (mapPanelAuditTypeFilter === "직접") {
+            filteredItems = continentFiltered.filter(i => i.audit_type === "직접");
+        } else if (mapPanelAuditTypeFilter === "간접") {
+            filteredItems = continentFiltered.filter(i => i.audit_type !== "직접");
         }
 
         if (mapTargetCountBadge) {
             mapTargetCountBadge.textContent = `${filteredItems.length}개소`;
         }
 
-        mapMarkersLayer.innerHTML = "";
+        renderMapYearlyAuditList(filteredItems);
+
+        initLeafletMap();
+        if (!leafletMap || !leafletMarkersLayer) return;
+
+        leafletMarkersLayer.clearLayers();
+        if (leafletRoutesLayer) leafletRoutesLayer.clearLayers();
+        markerByTargetId = {};
+
+        // 인천(ICN) 허브 좌표
+        const hubLat = 37.46;
+        const hubLon = 126.44;
+
+        // 같은 공항/좌표에 여러 심사가 겹치는 경우 스마트 방사형 분산 오프셋 계산 (Spiderfier)
+        const coordGroups = {};
         filteredItems.forEach(item => {
-            const pin = document.createElement("div");
-            pin.className = "map-pin";
-            pin.setAttribute("data-target-id", item.target_id);
-            pin.style.left = `${item.pos.x}%`;
-            pin.style.top = `${item.pos.y}%`;
+            const key = `${item.locInfo.lat.toFixed(3)}_${item.locInfo.lon.toFixed(3)}`;
+            if (!coordGroups[key]) coordGroups[key] = [];
+            coordGroups[key].push(item);
+        });
 
-            let pinTypeClass = item.audit_type === "직접" ? "pin-direct" : "pin-indirect";
-            if (item.operation_status === "비운항") pinTypeClass = "pin-inactive";
-            pin.classList.add(pinTypeClass);
+        Object.values(coordGroups).forEach(group => {
+            const count = group.length;
+            // 글로벌 항로 아크 그리기 (해외 지점인 경우)
+            const rep = group[0];
+            const hasDirectInGroup = group.some(g => g.audit_type === "직접");
+            if (showMapFlightRoutes && leafletRoutesLayer && rep.locInfo.country !== "대한민국") {
+                const arcPts = createCurvedArcLatLngs(hubLat, hubLon, rep.locInfo.lat, rep.locInfo.lon);
+                L.polyline(arcPts, {
+                    color: hasDirectInGroup ? '#00f2fe' : '#fb923c',
+                    weight: hasDirectInGroup ? 1.8 : 1.1,
+                    opacity: hasDirectInGroup ? 0.65 : 0.35,
+                    className: hasDirectInGroup ? 'map-flight-arc-direct' : 'map-flight-arc-indirect',
+                    interactive: false
+                }).addTo(leafletRoutesLayer);
+            }
 
-            if (item.isThisMonth) pin.classList.add("pin-pulse");
+            group.forEach((item, idx) => {
+                let lat = item.locInfo.lat;
+                let lon = item.locInfo.lon;
 
-            pin.innerHTML = `
-                <div class="pin-marker">
-                    <span class="pin-symbol">${item.symbol || '●'}</span>
-                </div>
-                <div class="pin-label">${item.locInfo.code || item.station_name.substring(0, 4)}</div>
-            `;
+                if (count > 1) {
+                    const angle = (idx / count) * 2 * Math.PI;
+                    const radius = 0.09 * Math.sqrt(count);
+                    lat += radius * Math.cos(angle);
+                    lon += (radius / Math.cos(lat * Math.PI / 180)) * Math.sin(angle);
+                }
 
-            pin.addEventListener("mouseenter", (e) => {
-                showMapTooltip(item, e);
-                highlightTableRow(item.target_id, true);
+                const isDirect = item.audit_type === "직접";
+                let typeClass = isDirect ? "type-direct" : "type-indirect";
+                if (item.operation_status === "비운항") typeClass = "type-inactive";
+                const monthPulseClass = item.isThisMonth ? "is-this-month" : "";
+
+                // 예정 월 추출 (예: "2026-06-01" -> "6월")
+                let monthShort = "";
+                if (item.scheduled_date && item.scheduled_date.includes("-")) {
+                    const mNum = parseInt(item.scheduled_date.split("-")[1], 10);
+                    if (!isNaN(mNum)) monthShort = `·${mNum}월`;
+                }
+
+                const codeLabel = item.locInfo.code && item.locInfo.code !== "SEL" && item.locInfo.code !== "KOR"
+                    ? `${item.locInfo.code}${monthShort}`
+                    : `${item.station_name.substring(0, 5)}${monthShort}`;
+
+                // 직접심사인 경우 블링블링 듀얼 네온 링 + 반짝이 별빛(✦) 추가
+                const blingExtrasHtml = (isDirect && item.operation_status !== "비운항")
+                    ? `
+                        <div class="pin-bling-ring"></div>
+                        <div class="pin-bling-ring ring-delay"></div>
+                        <span class="pin-sparkle s-top-right">✦</span>
+                        <span class="pin-sparkle s-bottom-left">✦</span>
+                      `
+                    : ``;
+
+                const iconHtml = `
+                    <div class="map-pin-inner ${typeClass} ${monthPulseClass}" data-target-id="${item.target_id}">
+                        ${blingExtrasHtml}
+                        <div class="pin-core-circle">${isDirect ? '✦' : (item.symbol || '◎')}</div>
+                        <div class="pin-title-tag">${codeLabel}</div>
+                    </div>
+                `;
+
+                const customIcon = L.divIcon({
+                    html: iconHtml,
+                    className: 'leaflet-custom-marker',
+                    iconSize: [48, 48],
+                    iconAnchor: [24, 24]
+                });
+
+                const marker = L.marker([lat, lon], { icon: customIcon }).addTo(leafletMarkersLayer);
+                markerByTargetId[item.target_id] = { marker, lat, lon, item };
+
+                const auditTypeBadge = isDirect
+                    ? '<span class="badge badge-blue" style="box-shadow:0 0 10px rgba(0,242,254,0.5); border:1px solid #00f2fe;">✦ 직접 심사 (블링)</span>'
+                    : '<span class="badge badge-orange">◎ 간접 심사</span>';
+                const monthBadge = item.isThisMonth
+                    ? '<span class="badge badge-accent" style="margin-left:4px;">🔥 이달의 심사</span>'
+                    : '';
+
+                // 2026~2030 연도별 품질심사 내역 미니 스트립 생성
+                const targetSched = multiYearScheduleMap[item.target_id] || {};
+                let multiYearStripHtml = `<div style="margin:8px 0; padding:6px 8px; background:rgba(0,0,0,0.35); border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+                    <div style="font-size:10px; font-weight:700; color:#7dd3fc; margin-bottom:4px;"><i class="fa-solid fa-calendar-week"></i> 연도별 품질심사 계획 내역 (2026~2030)</div>
+                    <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:4px; text-align:center;">`;
+                for (let y = 2026; y <= 2030; y++) {
+                    const sy = targetSched[y];
+                    const isCurY = String(y) === String(selectedYear);
+                    const cellBg = isCurY ? 'rgba(56,189,248,0.28)' : 'rgba(255,255,255,0.04)';
+                    const cellBorder = isCurY ? '1px solid #00f2fe' : '1px solid rgba(255,255,255,0.06)';
+                    let symTxt = '-';
+                    let symColor = '#64748b';
+                    if (sy) {
+                        symTxt = sy.audit_type === '직접' ? '✦직접' : '◎간접';
+                        symColor = sy.audit_type === '직접' ? '#38bdf8' : '#fb923c';
+                    }
+                    multiYearStripHtml += `
+                        <div style="background:${cellBg}; border:${cellBorder}; border-radius:4px; padding:3px 2px;">
+                            <div style="font-size:9px; color:#94a3b8;">${String(y).slice(2)}년</div>
+                            <div style="font-size:10px; font-weight:800; color:${symColor};">${symTxt}</div>
+                        </div>
+                    `;
+                }
+                multiYearStripHtml += `</div></div>`;
+
+                const popupHtml = `
+                    <div style="font-family:'Outfit','Noto Sans KR',sans-serif; min-width:255px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.1);">
+                            <strong style="font-size:14px; color:#ffffff;">${item.station_name}</strong>
+                            <div>${auditTypeBadge}${monthBadge}</div>
+                        </div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">조회연도: <strong style="color:#00f2fe;">${selectedYear}년 품질심사</strong></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">위치/국가: <strong style="color:#f8fafc;">${item.locInfo.country} (${item.locInfo.name || item.locInfo.code})</strong></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">심사분야: <strong style="color:#f8fafc;">${item.category}</strong></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">예정일자: <strong style="color:#38bdf8;">${item.scheduled_date || '-'}</strong> <span style="font-size:11px; color:#cbd5e1;">(${item.status || '계획'})</span></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:4px;">담당심사원: <strong style="color:#f8fafc;">${item.auditor || '미정'}</strong></div>
+                        ${multiYearStripHtml}
+                        <button class="btn btn-primary btn-sm btn-block" style="font-size:11px; padding:5px 8px; border-radius:6px; cursor:pointer;" onclick="window.__openTargetDetail(${item.target_id})">
+                            <i class="fa-solid fa-pen-to-square"></i> ${selectedYear}년 심사 상세 및 롤링 수정
+                        </button>
+                    </div>
+                `;
+
+                marker.bindPopup(popupHtml, { closeButton: false, offset: [0, -12], maxWidth: 300 });
+
+                marker.on('mouseover', () => {
+                    highlightTableRow(item.target_id, true);
+                });
+                marker.on('mouseout', () => {
+                    highlightTableRow(item.target_id, false);
+                });
             });
-            pin.addEventListener("mousemove", (e) => positionMapTooltip(e));
-            pin.addEventListener("mouseleave", () => {
-                hideMapTooltip();
-                highlightTableRow(item.target_id, false);
-            });
-            pin.addEventListener("click", () => openDetailModal(item));
-
-            mapMarkersLayer.appendChild(pin);
         });
     }
 
-    function showMapTooltip(item, e) {
-        if (!mapTooltip) return;
+    // 지도 내 좌측 상단 연도별 품질심사 내역 드로어 리스트 렌더링
+    function renderMapYearlyAuditList(items) {
+        const listEl = document.getElementById("map-yearly-list");
+        if (!listEl) return;
 
-        const auditTypeBadge = item.audit_type === "직접" 
-            ? '<span class="badge badge-blue">● 직접 심사</span>' 
-            : '<span class="badge badge-orange">◎ 간접 심사</span>';
+        if (!items || items.length === 0) {
+            listEl.innerHTML = `<div style="padding:16px; text-align:center; font-size:12px; color:#94a3b8;">조건에 해당하는 ${selectedYear}년 심사 내역이 없습니다.</div>`;
+            return;
+        }
 
-        const monthBadge = item.isThisMonth 
-            ? '<span class="badge badge-accent" style="margin-left:4px;">🔥 이달의 심사</span>' 
-            : '';
+        // 예정일자 순 정렬 (직접심사 우선 + 날짜순)
+        const sorted = [...items].sort((a, b) => {
+            const da = a.scheduled_date || "9999-99-99";
+            const db = b.scheduled_date || "9999-99-99";
+            if (da !== db) return da.localeCompare(db);
+            if (a.audit_type !== b.audit_type) return a.audit_type === "직접" ? -1 : 1;
+            return (a.station_name || "").localeCompare(b.station_name || "");
+        });
 
-        mapTooltip.innerHTML = `
-            <div class="tt-header">
-                <span class="tt-title">${item.station_name}</span>
-                <span>${auditTypeBadge}${monthBadge}</span>
-            </div>
-            <div class="tt-row"><span>국가/대륙</span><strong>${item.locInfo.country} (${item.locInfo.continent})</strong></div>
-            <div class="tt-row"><span>심사 분야</span><strong>${item.category}</strong></div>
-            <div class="tt-row"><span>운항 상태</span><strong>${item.operation_status}</strong></div>
-            <div class="tt-row"><span>심사 예정일</span><strong>${item.scheduled_date || '-'}</strong></div>
-            <div class="tt-row"><span>담당자</span><strong>${item.auditor || '미정'}</strong></div>
-            <div class="tt-footer"><i class="fa-solid fa-arrow-pointer"></i> 클릭하여 상세 계획 및 롤링 수정</div>
-        `;
-        mapTooltip.style.display = "block";
-        positionMapTooltip(e);
+        listEl.innerHTML = "";
+        sorted.forEach(item => {
+            const isDirect = item.audit_type === "직접";
+            const row = document.createElement("div");
+            row.className = `map-yearly-item ${isDirect ? 'is-direct-item' : 'is-indirect-item'}`;
+            row.setAttribute("data-target-id", item.target_id);
+
+            let dateDisplay = item.scheduled_date || "-";
+            if (dateDisplay.length >= 7) {
+                const parts = dateDisplay.split("-");
+                if (parts.length >= 2) {
+                    dateDisplay = `${parseInt(parts[1], 10)}월 (${parts[0].slice(2)}.${parts[1]})`;
+                }
+            }
+
+            row.innerHTML = `
+                <div class="map-y-item-left">
+                    <span class="map-y-item-type-badge ${isDirect ? 'badge-direct-bling' : 'badge-indirect-calm'}">
+                        ${isDirect ? '✦ 직접' : '◎ 간접'}
+                    </span>
+                    <div class="map-y-item-info">
+                        <div class="map-y-item-station" title="${item.station_name}">${item.station_name}</div>
+                        <div class="map-y-item-sub">${item.locInfo.country} · ${item.category}</div>
+                    </div>
+                </div>
+                <div class="map-y-item-right">
+                    <span class="map-y-item-date">${dateDisplay}</span>
+                    <span class="map-y-item-auditor">${item.auditor || item.status || '계획'}</span>
+                </div>
+            `;
+
+            row.addEventListener("mouseenter", () => highlightMapPin(item.target_id, true));
+            row.addEventListener("mouseleave", () => highlightMapPin(item.target_id, false));
+            row.addEventListener("click", () => {
+                const entry = markerByTargetId[item.target_id];
+                if (entry && leafletMap) {
+                    leafletMap.flyTo([entry.lat, entry.lon], Math.max(leafletMap.getZoom(), 5), { duration: 0.75 });
+                    setTimeout(() => {
+                        entry.marker.openPopup();
+                    }, 400);
+                }
+            });
+
+            listEl.appendChild(row);
+        });
     }
 
-    function positionMapTooltip(e) {
-        if (!mapTooltip || !mapTooltip.parentElement) return;
-        const rect = mapTooltip.parentElement.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-
-        mapTooltip.style.left = `${mouseX}px`;
-        mapTooltip.style.top = `${mouseY}px`;
-    }
-
-    function hideMapTooltip() {
-        if (mapTooltip) mapTooltip.style.display = "none";
-    }
+    // 전역 팝업 버튼 핸들러
+    window.__openTargetDetail = function(targetId) {
+        if (!latestDashboardData) return;
+        const target = (latestDashboardData.year_audits || []).find(a => a.target_id === targetId) 
+                    || (allTargets || []).find(t => t.id === targetId);
+        if (target) {
+            openDetailModal(target);
+        }
+    };
 
     function highlightMapPin(targetId, isHighlight) {
-        if (!mapMarkersLayer) return;
-        const pins = mapMarkersLayer.querySelectorAll(`.map-pin[data-target-id="${targetId}"]`);
-        pins.forEach(pin => {
-            if (isHighlight) pin.classList.add("highlighted");
-            else pin.classList.remove("highlighted");
+        const pinEls = document.querySelectorAll(`.map-pin-inner[data-target-id="${targetId}"]`);
+        pinEls.forEach(el => {
+            if (isHighlight) el.classList.add("pin-highlight-active");
+            else el.classList.remove("pin-highlight-active");
         });
     }
 
     function highlightTableRow(targetId, isHighlight) {
-        if (!thisMonthTableBody) return;
-        const rows = thisMonthTableBody.querySelectorAll(`tr[data-target-id="${targetId}"]`);
-        rows.forEach(r => {
-            if (isHighlight) r.classList.add("row-map-highlight");
-            else r.classList.remove("row-map-highlight");
+        if (thisMonthTableBody) {
+            const rows = thisMonthTableBody.querySelectorAll(`tr[data-target-id="${targetId}"]`);
+            rows.forEach(r => {
+                if (isHighlight) r.classList.add("row-map-highlight");
+                else r.classList.remove("row-map-highlight");
+            });
+        }
+        const mapList = document.getElementById("map-yearly-list");
+        if (mapList) {
+            const items = mapList.querySelectorAll(`.map-yearly-item[data-target-id="${targetId}"]`);
+            items.forEach(it => {
+                it.style.background = isHighlight ? "rgba(56, 189, 248, 0.25)" : "";
+                it.style.borderColor = isHighlight ? "#00f2fe" : "";
+            });
+        }
+    }
+
+    // --------------------------------------------------------
+    // 플로팅 지도 줌 & 포커스 & 연도별 심사 내역 컨트롤러
+    // --------------------------------------------------------
+    const btnMapZoomIn = document.getElementById("btn-map-zoom-in");
+    const btnMapZoomOut = document.getElementById("btn-map-zoom-out");
+    const btnMapZoomReset = document.getElementById("btn-map-zoom-reset");
+    const mapPresetBtns = document.querySelectorAll(".map-preset-btn");
+    const btnToggleMapRoutes = document.getElementById("btn-toggle-map-routes");
+    const btnToggleMapDrawer = document.getElementById("btn-toggle-map-drawer");
+    const mapYearlyDrawer = document.getElementById("map-yearly-drawer");
+
+    // 지도 내 연도 칩 클릭 바인딩 (2024~2030)
+    document.querySelectorAll("#map-year-quick-bar .map-year-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+            selectedYear = chip.getAttribute("data-year");
+            mapFilterMode = "year";
+            if (mapViewFilterBtns) {
+                mapViewFilterBtns.forEach(b => {
+                    if (b.getAttribute("data-filter") === "year") b.classList.add("active");
+                    else b.classList.remove("active");
+                });
+            }
+            syncYearSelectorsUI();
+            updatePageTitles();
+            loadDashboardData();
+        });
+    });
+
+    // 지도 내 전체/직접/간접 필터 클릭 바인딩
+    document.querySelectorAll(".map-yearly-counts .map-y-stat").forEach(statBtn => {
+        statBtn.addEventListener("click", () => {
+            document.querySelectorAll(".map-yearly-counts .map-y-stat").forEach(b => b.classList.remove("active"));
+            statBtn.classList.add("active");
+            mapPanelAuditTypeFilter = statBtn.getAttribute("data-type-filter") || "all";
+            renderWorldMap();
+        });
+    });
+
+    // 연도별 심사 내역 드로어 열기/접기
+    if (btnToggleMapDrawer && mapYearlyDrawer) {
+        btnToggleMapDrawer.addEventListener("click", () => {
+            const isCollapsed = mapYearlyDrawer.classList.toggle("collapsed");
+            const lbl = document.getElementById("map-drawer-toggle-lbl");
+            const icon = document.getElementById("map-drawer-toggle-icon");
+            if (lbl) lbl.textContent = isCollapsed ? "내역 펼치기" : "내역 접기";
+            if (icon) icon.className = isCollapsed ? "fa-solid fa-chevron-down" : "fa-solid fa-chevron-up";
         });
     }
 
-    // 맵 컨트롤러 이벤트 바인딩
+    // 항로 표시 토글
+    if (btnToggleMapRoutes) {
+        btnToggleMapRoutes.addEventListener("click", () => {
+            showMapFlightRoutes = !showMapFlightRoutes;
+            btnToggleMapRoutes.classList.toggle("active", showMapFlightRoutes);
+            renderWorldMap();
+        });
+    }
+
+    if (btnMapZoomIn) {
+        btnMapZoomIn.addEventListener("click", () => {
+            if (leafletMap) leafletMap.zoomIn();
+        });
+    }
+
+    if (btnMapZoomOut) {
+        btnMapZoomOut.addEventListener("click", () => {
+            if (leafletMap) leafletMap.zoomOut();
+        });
+    }
+
+    if (btnMapZoomReset) {
+        btnMapZoomReset.addEventListener("click", () => {
+            if (leafletMap) {
+                leafletMap.flyTo([26.0, 95.0], 3, { duration: 0.8 });
+                mapPresetBtns.forEach(b => b.classList.remove("active"));
+            }
+        });
+    }
+
+    if (mapPresetBtns) {
+        mapPresetBtns.forEach(btn => {
+            btn.addEventListener("click", () => {
+                mapPresetBtns.forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                const preset = btn.getAttribute("data-preset");
+                if (!leafletMap) return;
+
+                if (preset === "world") {
+                    leafletMap.flyTo([26.0, 80.0], 2, { duration: 0.9 });
+                } else if (preset === "asia") {
+                    leafletMap.flyTo([16.0, 108.0], 5, { duration: 1.0 });
+                } else if (preset === "japan") {
+                    leafletMap.flyTo([35.5, 137.0], 6, { duration: 1.0 });
+                } else if (preset === "europe") {
+                    leafletMap.flyTo([48.5, 10.0], 5, { duration: 1.0 });
+                } else if (preset === "americas") {
+                    leafletMap.flyTo([48.0, -108.0], 4, { duration: 1.0 });
+                } else if (preset === "korea") {
+                    leafletMap.flyTo([35.8, 127.8], 7, { duration: 1.0 });
+                }
+            });
+        });
+    }
+
+    // 맵 필터 버튼 바인딩
     if (mapViewFilterBtns) {
         mapViewFilterBtns.forEach(btn => {
             btn.addEventListener("click", async () => {
@@ -662,25 +1134,56 @@ document.addEventListener("DOMContentLoaded", () => {
                 pill.classList.add("active");
                 selectedContinent = pill.getAttribute("data-continent");
                 renderWorldMap();
+
+                if (leafletMap) {
+                    if (selectedContinent === "아시아") {
+                        leafletMap.flyTo([22.0, 114.0], 4, { duration: 1.0 });
+                    } else if (selectedContinent === "유럽") {
+                        leafletMap.flyTo([48.5, 10.0], 5, { duration: 1.0 });
+                    } else if (selectedContinent === "오세아니아") {
+                        leafletMap.flyTo([-10.0, 148.0], 3, { duration: 1.0 });
+                    } else if (selectedContinent === "북미") {
+                        leafletMap.flyTo([48.0, -108.0], 4, { duration: 1.0 });
+                    } else if (selectedContinent === "중동/기타") {
+                        leafletMap.flyTo([24.4, 54.6], 5, { duration: 1.0 });
+                    } else if (selectedContinent === "all") {
+                        leafletMap.flyTo([26.0, 95.0], 3, { duration: 0.8 });
+                    }
+                }
             });
         });
     }
 
-    if (btnMapThemeDark && btnMapThemeLight && worldMapImg) {
+    // 다크 / 라이트 테마 전환
+    if (btnMapThemeDark && btnMapThemeLight) {
         btnMapThemeDark.addEventListener("click", () => {
             btnMapThemeDark.classList.add("active");
             btnMapThemeLight.classList.remove("active");
-            worldMapImg.src = "/static/map_continents_dark.webp";
-            worldMapImg.classList.remove("light-theme");
             mapTheme = "dark";
+            if (leafletTileLayer && leafletMap) {
+                leafletTileLayer.setUrl(darkTileUrl);
+            }
+            if (leafletLabelTileLayer) {
+                leafletLabelTileLayer.setOpacity(0.75);
+            }
+            if (leafletGeoJsonLayer) {
+                leafletGeoJsonLayer.setStyle(getGeoJsonStyle());
+            }
         });
 
         btnMapThemeLight.addEventListener("click", () => {
             btnMapThemeLight.classList.add("active");
             btnMapThemeDark.classList.remove("active");
-            worldMapImg.src = "/static/map_continents.webp";
-            worldMapImg.classList.add("light-theme");
             mapTheme = "light";
+            if (leafletTileLayer && leafletMap) {
+                leafletTileLayer.setUrl(lightTileUrl);
+            }
+            if (leafletLabelTileLayer) {
+                leafletLabelTileLayer.setOpacity(0);
+            }
+            if (leafletGeoJsonLayer) {
+                leafletGeoJsonLayer.setStyle(getGeoJsonStyle());
+            }
         });
     }
 
@@ -2569,6 +3072,690 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnRefreshUsers = document.getElementById('btn-refresh-users');
     if (btnRefreshUsers) {
         btnRefreshUsers.addEventListener('click', loadUsersTable);
+    }
+
+    // ========================================================
+    // PRE-AUDIT TARGET ANALYSIS & 5-FOLDERS EXPLORER MODULE
+    // ========================================================
+    let analysisTreeData = null;
+    let selectedAnalysisTargetId = null;
+    let currentTargetAnalysisData = null;
+    let currentFindingFilter = "all";
+    let currentTreeFilter = "all";
+
+    const treeSearchInput = document.getElementById("tree-search-input");
+    const btnClearTreeSearch = document.getElementById("btn-clear-tree-search");
+    const treeListContainer = document.getElementById("analysis-tree-list");
+    const treeTotalCount = document.getElementById("tree-total-count");
+
+    const analysisEmptyState = document.getElementById("analysis-empty-state");
+    const analysisTargetView = document.getElementById("analysis-target-view");
+
+    // Load Tree Explorer
+    async function loadAnalysisTreeData() {
+        if (!treeListContainer) return;
+        const res = await apiFetch("/api/targets/tree");
+        if (!res) return;
+
+        analysisTreeData = res;
+        if (treeTotalCount) treeTotalCount.textContent = `${res.total_targets || 0}개`;
+
+        renderAnalysisTree();
+
+        // If no target is selected yet, select first available or keep current
+        if (!selectedAnalysisTargetId) {
+            let firstId = null;
+            for (const cat of res.categories) {
+                const list = res.tree[cat] || [];
+                const vaeco = list.find(t => t.station_name && t.station_name.includes("VAECO (DAD"));
+                if (vaeco) {
+                    firstId = vaeco.id;
+                    break;
+                }
+                if (!firstId && list.length > 0) {
+                    firstId = list[0].id;
+                }
+            }
+            if (firstId) {
+                selectAnalysisTarget(firstId);
+            }
+        } else {
+            selectAnalysisTarget(selectedAnalysisTargetId);
+        }
+    }
+
+    function getFolderIconClass(category) {
+        if (category.includes("내부")) return "fa-solid fa-building-user folder-icon-internal";
+        if (category.includes("지점")) return "fa-solid fa-location-dot folder-icon-line-station";
+        if (category.includes("운항정비 위탁")) return "fa-solid fa-handshake folder-icon-line-outsource";
+        if (category.includes("중정비")) return "fa-solid fa-warehouse folder-icon-heavy";
+        return "fa-solid fa-toolbox folder-icon-partner";
+    }
+
+    function renderAnalysisTree() {
+        if (!analysisTreeData || !treeListContainer) return;
+
+        const keyword = (treeSearchInput ? treeSearchInput.value : "").trim().toLowerCase();
+        treeListContainer.innerHTML = "";
+
+        const currentYearStr = String(selectedYear || 2026);
+
+        analysisTreeData.categories.forEach(cat => {
+            const rawTargets = analysisTreeData.tree[cat] || [];
+            
+            const filteredTargets = rawTargets.filter(t => {
+                if (keyword) {
+                    const matchName = (t.station_name || "").toLowerCase().includes(keyword);
+                    const matchAc = (t.aircraft_types || "").toLowerCase().includes(keyword);
+                    const matchEng = (t.engine_types || "").toLowerCase().includes(keyword);
+                    const matchCat = (t.category || "").toLowerCase().includes(keyword);
+                    if (!matchName && !matchAc && !matchEng && !matchCat) return false;
+                }
+
+                if (currentTreeFilter === "open_findings") {
+                    if (!t.open_findings || t.open_findings === 0) return false;
+                } else if (currentTreeFilter === "this_year") {
+                    const nextDate = t.next_audit_date || "";
+                    if (!nextDate.startsWith(currentYearStr)) return false;
+                }
+
+                return true;
+            });
+
+            const groupDiv = document.createElement("div");
+            groupDiv.className = "analysis-folder-group";
+            const isAutoExpanded = keyword.length > 0 ? filteredTargets.length > 0 : (cat.includes("운항정비 위탁") || cat.includes("내부심사") || filteredTargets.some(t => t.id === selectedAnalysisTargetId));
+            if (isAutoExpanded) {
+                groupDiv.classList.add("expanded");
+            }
+
+            const headerDiv = document.createElement("div");
+            headerDiv.className = "analysis-folder-header";
+            headerDiv.innerHTML = `
+                <div class="folder-title-wrap">
+                    <i class="${getFolderIconClass(cat)}"></i>
+                    <span>${cat}</span>
+                </div>
+                <div class="folder-meta-wrap">
+                    <span class="folder-count-badge">${filteredTargets.length}개</span>
+                    <i class="fa-solid fa-chevron-right folder-arrow"></i>
+                </div>
+            `;
+            headerDiv.addEventListener("click", () => {
+                groupDiv.classList.toggle("expanded");
+            });
+
+            const itemsContainer = document.createElement("div");
+            itemsContainer.className = "folder-items-container";
+
+            if (filteredTargets.length === 0) {
+                itemsContainer.innerHTML = `<div style="font-size:11.5px; color:var(--text-secondary); padding:6px 10px; font-style:italic;">일치하는 대상 없음</div>`;
+            } else {
+                filteredTargets.forEach(t => {
+                    const itemDiv = document.createElement("div");
+                    itemDiv.className = `tree-target-item ${t.id === selectedAnalysisTargetId ? "active" : ""}`;
+                    itemDiv.setAttribute("data-target-id", t.id);
+
+                    let badgeHtml = "";
+                    if (t.open_findings && t.open_findings > 0) {
+                        badgeHtml += `<span class="badge-open-findings" title="미결/조치중 지적사항 ${t.open_findings}건">⚠️ ${t.open_findings}</span>`;
+                    }
+                    if (t.total_findings && t.total_findings > 0 && (!t.open_findings || t.open_findings === 0)) {
+                        badgeHtml += `<span class="badge badge-secondary" style="font-size:10px; padding:1px 5px;" title="누적 지적사항 ${t.total_findings}건">${t.total_findings}</span>`;
+                    }
+
+                    itemDiv.innerHTML = `
+                        <div class="tree-target-name" title="${t.station_name}">
+                            <i class="fa-solid fa-plane" style="font-size:10px; color:var(--text-secondary); opacity:0.6;"></i>
+                            <span>${t.station_name}</span>
+                        </div>
+                        <div class="tree-target-badges">
+                            ${badgeHtml}
+                        </div>
+                    `;
+
+                    itemDiv.addEventListener("click", () => {
+                        selectAnalysisTarget(t.id);
+                    });
+
+                    itemsContainer.appendChild(itemDiv);
+                });
+            }
+
+            groupDiv.appendChild(headerDiv);
+            groupDiv.appendChild(itemsContainer);
+            treeListContainer.appendChild(groupDiv);
+        });
+    }
+
+    function selectAnalysisTarget(targetId) {
+        selectedAnalysisTargetId = targetId;
+        document.querySelectorAll(".tree-target-item").forEach(el => {
+            const id = parseInt(el.getAttribute("data-target-id"));
+            if (id === targetId) {
+                el.classList.add("active");
+                const parentGroup = el.closest(".analysis-folder-group");
+                if (parentGroup) parentGroup.classList.add("expanded");
+            } else {
+                el.classList.remove("active");
+            }
+        });
+
+        loadTargetAnalysis(targetId);
+    }
+
+    async function loadTargetAnalysis(targetId) {
+        if (!targetId) return;
+
+        const data = await apiFetch(`/api/targets/${targetId}/analysis`);
+        if (!data || !data.target) {
+            if (analysisEmptyState) analysisEmptyState.style.display = "block";
+            if (analysisTargetView) analysisTargetView.style.display = "none";
+            return;
+        }
+
+        currentTargetAnalysisData = data;
+        if (analysisEmptyState) analysisEmptyState.style.display = "none";
+        if (analysisTargetView) analysisTargetView.style.display = "flex";
+
+        const t = data.target;
+
+        // 1. Header Banner
+        document.getElementById("target-view-name").textContent = t.station_name;
+        document.getElementById("target-view-category").textContent = t.category;
+        document.getElementById("target-view-status").textContent = t.operation_status;
+        document.getElementById("target-view-interval").textContent = `${t.base_interval || 2}년 주기`;
+
+        // Specs Pills
+        const specsContainer = document.getElementById("target-view-specs");
+        if (specsContainer) {
+            specsContainer.innerHTML = "";
+            const acs = (t.aircraft_types || "").split(",").map(s => s.trim()).filter(s => s.length > 0);
+            const engs = (t.engine_types || "").split(",").map(s => s.trim()).filter(s => s.length > 0);
+
+            acs.forEach(ac => {
+                const sp = document.createElement("span");
+                sp.className = "spec-pill ac";
+                sp.innerHTML = `<i class="fa-solid fa-plane"></i> ${ac}`;
+                specsContainer.appendChild(sp);
+            });
+            engs.forEach(eng => {
+                const sp = document.createElement("span");
+                sp.className = "spec-pill eng";
+                sp.innerHTML = `<i class="fa-solid fa-fire-flame-curved"></i> ${eng}`;
+                specsContainer.appendChild(sp);
+            });
+            if (acs.length === 0 && engs.length === 0) {
+                specsContainer.innerHTML = `<span style="font-size:11.5px; color:var(--text-secondary);">적용 기종/엔진: N/A</span>`;
+            }
+        }
+
+        // 2. 4 KPI Cards
+        const histories = data.histories || [];
+        const completedHistories = histories.filter(h => h.status === "완료");
+        const lastAudit = completedHistories.length > 0 ? completedHistories[0] : null;
+        document.getElementById("kpi-audit-history-count").textContent = `${completedHistories.length}회`;
+        document.getElementById("kpi-audit-history-sub").textContent = lastAudit ? `최근: ${lastAudit.year}년 (${lastAudit.audit_type})` : "수행 이력 없음";
+
+        const findings = data.findings || [];
+        const carCount = findings.filter(f => f.finding_type === "CAR").length;
+        const findCount = findings.filter(f => f.finding_type === "Finding").length;
+        document.getElementById("kpi-findings-count").textContent = `${findings.length}건`;
+        document.getElementById("kpi-findings-sub").textContent = `CAR: ${carCount}건 / Finding: ${findCount}건`;
+
+        const openFindings = findings.filter(f => f.action_status !== "조치완료");
+        document.getElementById("kpi-open-findings-count").textContent = `${openFindings.length}건`;
+        document.getElementById("kpi-open-findings-sub").textContent = openFindings.length > 0 ? `⚠️ 사전 심사 시 조치상태 실사 필수` : `모든 지적사항 조치 완료`;
+
+        const sched = data.schedule_2026_2030 || {};
+        let nextSchedText = "미편성";
+        let nextSchedType = "-";
+        for (let yr = 2026; yr <= 2030; yr++) {
+            if (sched[yr] && sched[yr].audit_type) {
+                nextSchedText = `${yr}년 (${sched[yr].audit_type})`;
+                nextSchedType = `예정 상태: ${sched[yr].status || "계획"}`;
+                break;
+            }
+        }
+        document.getElementById("kpi-next-audit-date").textContent = nextSchedText;
+        document.getElementById("kpi-next-audit-type").textContent = nextSchedType;
+
+        // 3. Focus Notes & Checklist
+        const focusNote = data.focus_note || {};
+        const focusInput = document.getElementById("focus-points-input");
+        const checklistInput = document.getElementById("checklist-notes-input");
+        const focusUpdatedLbl = document.getElementById("focus-last-updated");
+
+        if (focusInput) focusInput.value = focusNote.focus_points || "";
+        if (checklistInput) checklistInput.value = focusNote.checklist_notes || "";
+        if (focusUpdatedLbl) {
+            focusUpdatedLbl.textContent = focusNote.updated_at ? `마지막 저장: ${focusNote.updated_at} (작성: ${focusNote.updated_by || "심사원"})` : "등록된 사전 착안사항이 없습니다. 작성 후 저장해 주세요.";
+        }
+
+        // 4. Vulnerability Stats Bars
+        renderVulnerabilityStats(data.tag_stats || [], findings.length);
+
+        // 5. Multi-Year Pills (2026-2030)
+        renderMultiYearPills(sched);
+
+        // 6. Findings List
+        renderFindingsList();
+
+        // 7. Audit History Table
+        renderTargetHistoryTable(histories);
+    }
+
+    function renderVulnerabilityStats(tagStats, totalFindingsCount) {
+        const container = document.getElementById("vulnerability-stats-container");
+        if (!container) return;
+        container.innerHTML = "";
+
+        if (!tagStats || tagStats.length === 0 || totalFindingsCount === 0) {
+            container.innerHTML = `<div style="font-size:12px; color:var(--text-secondary); padding:10px 0; text-align:center;">지적/취약 분야 데이터가 없습니다.</div>`;
+            return;
+        }
+
+        tagStats.forEach(stat => {
+            const pct = Math.round((stat.count / totalFindingsCount) * 100);
+            const itemDiv = document.createElement("div");
+            itemDiv.className = "vuln-item";
+            itemDiv.innerHTML = `
+                <div class="vuln-header">
+                    <span><i class="fa-solid fa-tag" style="color:var(--accent-orange); font-size:11px; margin-right:4px;"></i>${stat.category_tag}</span>
+                    <span><strong>${stat.count}건</strong> (${pct}%)</span>
+                </div>
+                <div class="vuln-bar-bg">
+                    <div class="vuln-bar-fill" style="width: ${pct}%;"></div>
+                </div>
+            `;
+            container.appendChild(itemDiv);
+        });
+    }
+
+    function renderMultiYearPills(sched) {
+        const container = document.getElementById("multi-year-pills-container");
+        if (!container) return;
+        container.innerHTML = "";
+
+        for (let yr = 2026; yr <= 2030; yr++) {
+            const info = sched[yr];
+            const pill = document.createElement("div");
+            pill.className = "year-pill-card";
+
+            let statusHtml = `<span class="year-pill-status status-none">미편성</span>`;
+            if (info && info.audit_type) {
+                if (info.audit_type === "직접") {
+                    statusHtml = `<span class="year-pill-status status-direct">● 직접 (${info.status || "계획"})</span>`;
+                } else {
+                    statusHtml = `<span class="year-pill-status status-indirect">◎ 간접 (${info.status || "계획"})</span>`;
+                }
+            }
+
+            pill.innerHTML = `
+                <div class="year-pill-year">${yr}년</div>
+                ${statusHtml}
+            `;
+            container.appendChild(pill);
+        }
+    }
+
+    function renderFindingsList() {
+        const container = document.getElementById("findings-list-container");
+        const totalCountLbl = document.getElementById("findings-total-count");
+        if (!container || !currentTargetAnalysisData) return;
+
+        const findings = currentTargetAnalysisData.findings || [];
+        if (totalCountLbl) totalCountLbl.textContent = findings.length;
+
+        const filtered = findings.filter(f => {
+            if (currentFindingFilter === "all") return true;
+            if (currentFindingFilter === "open") return f.action_status !== "조치완료";
+            return f.finding_type === currentFindingFilter;
+        });
+
+        container.innerHTML = "";
+
+        if (filtered.length === 0) {
+            container.innerHTML = `
+                <div style="background:rgba(255,255,255,0.02); border:1px dashed var(--card-border); border-radius:10px; padding:30px; text-align:center; color:var(--text-secondary); font-size:13px;">
+                    <i class="fa-solid fa-circle-check" style="font-size:24px; color:#10b981; margin-bottom:8px; display:block;"></i>
+                    해당 조건의 지적사항이 없습니다.
+                </div>
+            `;
+            return;
+        }
+
+        filtered.forEach(f => {
+            const card = document.createElement("div");
+            const typeClass = (f.finding_type || "Finding").toLowerCase();
+            card.className = `finding-item-card type-${typeClass}`;
+
+            const statusClass = f.action_status === "조치완료" ? "status-done" : (f.action_status === "조치중" ? "status-progress" : "status-open");
+
+            let regHtml = f.regulation_ref ? `<div class="finding-info-block"><div class="finding-info-label"><i class="fa-solid fa-scale-balanced"></i> 근거 규정</div><div class="finding-info-val">${f.regulation_ref}</div></div>` : "";
+            let rootHtml = f.root_cause ? `<div class="finding-info-block"><div class="finding-info-label"><i class="fa-solid fa-magnifying-glass-chart"></i> 원인 분석</div><div class="finding-info-val">${f.root_cause}</div></div>` : "";
+            let actionHtml = f.action_taken ? `<div class="finding-info-block" style="grid-column: span 2;"><div class="finding-info-label"><i class="fa-solid fa-wrench" style="color:#10b981;"></i> 개선조치 내용</div><div class="finding-info-val" style="color:#86efac;">${f.action_taken}</div></div>` : "";
+
+            card.innerHTML = `
+                <div class="finding-top-row">
+                    <div class="finding-badges-wrap">
+                        <span class="badge-finding-type ${f.finding_type}">${f.finding_type}</span>
+                        ${f.category_tag ? `<span class="badge-tag"><i class="fa-solid fa-tag"></i> ${f.category_tag}</span>` : ""}
+                        <span class="badge-finding-status ${statusClass}">${f.action_status}</span>
+                    </div>
+                    <div class="finding-date-auditor">
+                        <i class="fa-regular fa-calendar" style="margin-right:4px;"></i>${f.audit_date}
+                        ${f.auditor ? ` | <i class="fa-solid fa-user-pen" style="margin-right:2px;"></i>${f.auditor}` : ""}
+                    </div>
+                </div>
+                <div class="finding-title-text">${f.title}</div>
+                <div class="finding-detail-text">${f.finding_detail}</div>
+                
+                ${(regHtml || rootHtml || actionHtml) ? `<div class="finding-detail-grid">${regHtml}${rootHtml}${actionHtml}</div>` : ""}
+
+                <div class="finding-actions-row">
+                    <button class="btn-finding-action btn-edit-finding"><i class="fa-solid fa-pen-to-square"></i> 수정</button>
+                    <button class="btn-finding-action btn-del btn-delete-finding"><i class="fa-solid fa-trash-can"></i> 삭제</button>
+                </div>
+            `;
+
+            card.querySelector(".btn-edit-finding").addEventListener("click", () => {
+                openFindingModal(f);
+            });
+            card.querySelector(".btn-delete-finding").addEventListener("click", () => {
+                deleteFinding(f.id, f.title);
+            });
+
+            container.appendChild(card);
+        });
+    }
+
+    function renderTargetHistoryTable(histories) {
+        const tbody = document.getElementById("target-history-table-body");
+        if (!tbody) return;
+        tbody.innerHTML = "";
+
+        if (!histories || histories.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-secondary);">수행된 심사 이력이 없습니다.</td></tr>`;
+            return;
+        }
+
+        histories.forEach(h => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td><strong>${h.year}년</strong></td>
+                <td><span class="badge ${h.audit_type === '직접' ? 'badge-blue' : 'badge-green'}">${h.audit_type}</span></td>
+                <td>${h.scheduled_date || '-'}</td>
+                <td>${h.auditor || '-'}</td>
+                <td><span class="badge ${h.status === '완료' ? 'badge-green' : 'badge-orange'}">${h.status}</span></td>
+                <td><small style="color:var(--text-secondary);">${h.remarks || '-'}</small></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    const btnSaveFocusNote = document.getElementById("btn-save-focus-note");
+    if (btnSaveFocusNote) {
+        btnSaveFocusNote.addEventListener("click", async () => {
+            if (!selectedAnalysisTargetId) return;
+            const focusPoints = document.getElementById("focus-points-input").value;
+            const checklistNotes = document.getElementById("checklist-notes-input").value;
+
+            btnSaveFocusNote.disabled = true;
+            btnSaveFocusNote.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 저장 중...`;
+
+            const res = await apiFetch("/api/targets/focus-notes", {
+                method: "POST",
+                body: JSON.stringify({
+                    target_id: selectedAnalysisTargetId,
+                    focus_points: focusPoints,
+                    checklist_notes: checklistNotes
+                })
+            });
+
+            btnSaveFocusNote.disabled = false;
+            btnSaveFocusNote.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> 착안사항 저장`;
+
+            if (res && res.status === "success") {
+                showToast(res.message, "success");
+                loadTargetAnalysis(selectedAnalysisTargetId);
+            }
+        });
+    }
+
+    if (treeSearchInput) {
+        treeSearchInput.addEventListener("input", renderAnalysisTree);
+    }
+    if (btnClearTreeSearch) {
+        btnClearTreeSearch.addEventListener("click", () => {
+            if (treeSearchInput) treeSearchInput.value = "";
+            renderAnalysisTree();
+        });
+    }
+    document.querySelectorAll(".tree-filter-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+            document.querySelectorAll(".tree-filter-chip").forEach(c => c.classList.remove("active"));
+            chip.classList.add("active");
+            currentTreeFilter = chip.getAttribute("data-filter");
+            renderAnalysisTree();
+        });
+    });
+
+    document.querySelectorAll(".finding-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+            document.querySelectorAll(".finding-tab").forEach(t => t.classList.remove("active"));
+            tab.classList.add("active");
+            currentFindingFilter = tab.getAttribute("data-type");
+            renderFindingsList();
+        });
+    });
+
+    // Finding Modal Elements
+    const modalFinding = document.getElementById("modal-finding");
+    const formFinding = document.getElementById("finding-form");
+    const btnOpenNewFinding = document.getElementById("btn-open-new-finding-modal");
+    const btnCloseFindingModal = document.getElementById("btn-close-finding-modal");
+    const btnCancelFindingModal = document.getElementById("btn-cancel-finding-modal");
+
+    function openFindingModal(findingData) {
+        if (!selectedAnalysisTargetId && !findingData) return;
+        const targetName = currentTargetAnalysisData && currentTargetAnalysisData.target ? currentTargetAnalysisData.target.station_name : "";
+
+        if (findingData) {
+            document.getElementById("finding-modal-title").innerHTML = `<i class="fa-solid fa-pen-to-square" style="color:var(--accent-blue);"></i> 지적사항 수정`;
+            document.getElementById("finding-id").value = findingData.id;
+            document.getElementById("finding-target-id").value = findingData.target_id;
+            document.getElementById("finding-target-name-display").value = targetName;
+            document.getElementById("finding-audit-date").value = findingData.audit_date;
+            document.getElementById("finding-type").value = findingData.finding_type;
+            document.getElementById("finding-category-tag").value = findingData.category_tag || "공구관리";
+            document.getElementById("finding-action-status").value = findingData.action_status || "조치완료";
+            document.getElementById("finding-title").value = findingData.title;
+            document.getElementById("finding-detail").value = findingData.finding_detail;
+            document.getElementById("finding-reg-ref").value = findingData.regulation_ref || "";
+            document.getElementById("finding-auditor").value = findingData.auditor || "";
+            document.getElementById("finding-root-cause").value = findingData.root_cause || "";
+            document.getElementById("finding-action-taken").value = findingData.action_taken || "";
+            document.getElementById("finding-due-date").value = findingData.due_date || "";
+        } else {
+            document.getElementById("finding-modal-title").innerHTML = `<i class="fa-solid fa-file-circle-plus" style="color:var(--accent-blue);"></i> 신규 지적사항 등록`;
+            document.getElementById("finding-id").value = "";
+            document.getElementById("finding-target-id").value = selectedAnalysisTargetId;
+            document.getElementById("finding-target-name-display").value = targetName;
+            document.getElementById("finding-audit-date").value = new Date().toISOString().split("T")[0];
+            document.getElementById("finding-type").value = "Finding";
+            document.getElementById("finding-category-tag").value = "공구관리";
+            document.getElementById("finding-action-status").value = "조치완료";
+            document.getElementById("finding-title").value = "";
+            document.getElementById("finding-detail").value = "";
+            document.getElementById("finding-reg-ref").value = "";
+            document.getElementById("finding-auditor").value = currentUser ? currentUser.name : "";
+            document.getElementById("finding-root-cause").value = "";
+            document.getElementById("finding-action-taken").value = "";
+            document.getElementById("finding-due-date").value = "";
+        }
+
+        if (modalFinding) modalFinding.classList.add("active");
+    }
+
+    function closeFindingModal() {
+        if (modalFinding) modalFinding.classList.remove("active");
+        if (formFinding) formFinding.reset();
+    }
+
+    if (btnOpenNewFinding) btnOpenNewFinding.addEventListener("click", () => openFindingModal(null));
+    if (btnCloseFindingModal) btnCloseFindingModal.addEventListener("click", closeFindingModal);
+    if (btnCancelFindingModal) btnCancelFindingModal.addEventListener("click", closeFindingModal);
+
+    if (formFinding) {
+        formFinding.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fid = document.getElementById("finding-id").value;
+            const targetId = parseInt(document.getElementById("finding-target-id").value);
+            const auditDate = document.getElementById("finding-audit-date").value;
+            const findingType = document.getElementById("finding-type").value;
+            const categoryTag = document.getElementById("finding-category-tag").value;
+            const actionStatus = document.getElementById("finding-action-status").value;
+            const title = document.getElementById("finding-title").value;
+            const detail = document.getElementById("finding-detail").value;
+            const regRef = document.getElementById("finding-reg-ref").value;
+            const auditor = document.getElementById("finding-auditor").value;
+            const rootCause = document.getElementById("finding-root-cause").value;
+            const actionTaken = document.getElementById("finding-action-taken").value;
+            const dueDate = document.getElementById("finding-due-date").value;
+
+            const url = fid ? "/api/findings/update" : "/api/findings/add";
+            const payload = {
+                id: fid ? parseInt(fid) : undefined,
+                target_id: targetId,
+                audit_date: auditDate,
+                finding_type: findingType,
+                category_tag: categoryTag,
+                action_status: actionStatus,
+                title: title,
+                finding_detail: detail,
+                regulation_ref: regRef,
+                auditor: auditor,
+                root_cause: rootCause,
+                action_taken: actionTaken,
+                due_date: dueDate
+            };
+
+            const res = await apiFetch(url, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+
+            if (res && res.status === "success") {
+                showToast(res.message, "success");
+                closeFindingModal();
+                loadAnalysisTreeData();
+                loadTargetAnalysis(targetId);
+            }
+        });
+    }
+
+    async function deleteFinding(findingId, title) {
+        if (!confirm(`'${title}' 지적사항을 삭제하시겠습니까?`)) return;
+        const res = await apiFetch("/api/findings/delete", {
+            method: "POST",
+            body: JSON.stringify({ id: findingId })
+        });
+        if (res && res.status === "success") {
+            showToast(res.message, "success");
+            loadAnalysisTreeData();
+            loadTargetAnalysis(selectedAnalysisTargetId);
+        }
+    }
+
+    // Bulk Import Elements
+    const modalFindingImport = document.getElementById("modal-finding-import");
+    const btnOpenFindingImportModal = document.getElementById("btn-open-finding-import-modal");
+    const btnCloseFindingImportModal = document.getElementById("btn-close-finding-import-modal");
+    const btnCancelFindingImportModal = document.getElementById("btn-cancel-finding-import-modal");
+    const btnFillImportSample = document.getElementById("btn-fill-import-sample");
+    const btnSubmitFindingImport = document.getElementById("btn-submit-finding-import");
+    const findingImportTextarea = document.getElementById("finding-import-textarea");
+
+    function openFindingImportModal() {
+        if (modalFindingImport) modalFindingImport.classList.add("active");
+    }
+
+    function closeFindingImportModal() {
+        if (modalFindingImport) modalFindingImport.classList.remove("active");
+        if (findingImportTextarea) findingImportTextarea.value = "";
+    }
+
+    if (btnOpenFindingImportModal) btnOpenFindingImportModal.addEventListener("click", openFindingImportModal);
+    if (btnCloseFindingImportModal) btnCloseFindingImportModal.addEventListener("click", closeFindingImportModal);
+    if (btnCancelFindingImportModal) btnCancelFindingImportModal.addEventListener("click", closeFindingImportModal);
+
+    if (btnFillImportSample && findingImportTextarea) {
+        btnFillImportSample.addEventListener("click", () => {
+            const today = new Date().toISOString().split("T")[0];
+            findingImportTextarea.value = 
+`${today}\tFinding\t공구관리\t측정공구 교정검사 주기 초과 보관\t라인정비 현장 토크렌치 교정 유효기간 초과\t정비규정 제5조\t교대 시 대조 누락\t공구 즉시 폐기 및 교정완료품 비치\t조치완료\t최병근
+${today}\tFinding\t작업절차\tTransit Check 점검표 서명 누락\t출항 직전까지 점검표 서명란 공란 확인\t운항정비절차서 3.2\t작업자 인수인계 지연\tSOP 재교육 및 서명 확인 프로세스 개선\t조치완료\t송동훈
+${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란\t소형 냉장고 온도 점검표 일부 미기재\t자재관리지침 8조\t야간 당직자 점검 루틴 누락\t디지털 온습도 로거 설치 진행 중\t조치중\t이진성`;
+        });
+    }
+
+    if (btnSubmitFindingImport) {
+        btnSubmitFindingImport.addEventListener("click", async () => {
+            if (!selectedAnalysisTargetId) {
+                showToast("먼저 심사 대상을 선택해 주세요.", "error");
+                return;
+            }
+            const rawText = (findingImportTextarea ? findingImportTextarea.value : "").trim();
+            if (!rawText) {
+                showToast("임포트할 데이터를 입력해 주세요.", "error");
+                return;
+            }
+
+            const items = [];
+            const lines = rawText.split("\n");
+            for (const line of lines) {
+                const parts = line.split("\t");
+                if (parts.length >= 4) {
+                    items.push({
+                        target_id: selectedAnalysisTargetId,
+                        audit_date: parts[0] ? parts[0].trim() : "",
+                        finding_type: parts[1] ? parts[1].trim() : "Finding",
+                        category_tag: parts[2] ? parts[2].trim() : "공구관리",
+                        title: parts[3] ? parts[3].trim() : "",
+                        finding_detail: parts[4] ? parts[4].trim() : parts[3].trim(),
+                        regulation_ref: parts[5] ? parts[5].trim() : "",
+                        root_cause: parts[6] ? parts[6].trim() : "",
+                        action_taken: parts[7] ? parts[7].trim() : "",
+                        action_status: parts[8] ? parts[8].trim() : "조치완료",
+                        auditor: parts[9] ? parts[9].trim() : (currentUser ? currentUser.name : "")
+                    });
+                }
+            }
+
+            if (items.length === 0) {
+                showToast("유효한 행 데이터를 인식하지 못했습니다. 탭(Tab)으로 구분된 형식인지 확인해 주세요.", "error");
+                return;
+            }
+
+            btnSubmitFindingImport.disabled = true;
+            btnSubmitFindingImport.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 등록 중...`;
+
+            const res = await apiFetch("/api/findings/import", {
+                method: "POST",
+                body: JSON.stringify({ items: items })
+            });
+
+            btnSubmitFindingImport.disabled = false;
+            btnSubmitFindingImport.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> 일괄 등록 실행`;
+
+            if (res && res.status === "success") {
+                showToast(res.message, "success");
+                closeFindingImportModal();
+                loadAnalysisTreeData();
+                loadTargetAnalysis(selectedAnalysisTargetId);
+            }
+        });
     }
 
     // --------------------------------------------------------

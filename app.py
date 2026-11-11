@@ -12,6 +12,10 @@ import secrets
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "audit.db")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+if not os.path.exists(STATIC_DIR):
+    alt_static = os.path.join(os.path.dirname(BASE_DIR), "static")
+    if os.path.exists(alt_static):
+        STATIC_DIR = alt_static
 PORT = 8000
 
 # 메모리 세션 저장소 (token -> user_dict)
@@ -154,9 +158,47 @@ def _ensure_users_table():
     conn.commit()
     conn.close()
 
+def _ensure_findings_schema():
+    """audit_findings 및 audit_focus_notes 테이블 생성 보장"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS audit_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_id INTEGER NOT NULL,
+            audit_date TEXT NOT NULL,
+            finding_type TEXT NOT NULL DEFAULT 'Finding',
+            category_tag TEXT DEFAULT '',
+            title TEXT NOT NULL,
+            finding_detail TEXT NOT NULL,
+            regulation_ref TEXT DEFAULT '',
+            root_cause TEXT DEFAULT '',
+            action_taken TEXT DEFAULT '',
+            action_status TEXT NOT NULL DEFAULT '조치완료',
+            due_date TEXT DEFAULT '',
+            auditor TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (target_id) REFERENCES audit_targets(id)
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS audit_focus_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_id INTEGER NOT NULL UNIQUE,
+            focus_points TEXT DEFAULT '',
+            checklist_notes TEXT DEFAULT '',
+            updated_by TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (target_id) REFERENCES audit_targets(id)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
 _ensure_auditors_table()
 _ensure_targets_schema()
 _ensure_users_table()
+_ensure_findings_schema()
 
 def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end_year: int = 2030):
     conn = get_db_connection()
@@ -241,14 +283,26 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
     if last_audit:
         ref_year = last_audit["year"]
         ref_type = last_audit["audit_type"]
+        ref_month = 6
+        if last_audit["scheduled_date"]:
+            try:
+                ref_month = int(last_audit["scheduled_date"].split("-")[1])
+            except Exception:
+                ref_month = 6
     else:
-        ref_year, ref_type = None, None
+        ref_year, ref_type, ref_month = None, None, 6
         
     for year in range(start_year, end_year + 1):
         # 4.1 수동 입력된 DB 기록이 있는 경우 -> 해당 입력 시점을 새 기준(Anchor)으로 롤링 리셋
         if year in existing_histories:
             db_record = existing_histories[year]
             a_type = db_record["audit_type"] or ("간접" if ref_type == "직접" else "직접")
+            s_date = db_record["scheduled_date"] or f"{year}-{ref_month:02d}-01"
+            if s_date:
+                try:
+                    ref_month = int(s_date.split("-")[1])
+                except Exception:
+                    pass
             schedule[year] = {
                 "id": db_record["id"],
                 "target_id": target_id,
@@ -258,7 +312,7 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                 "is_event": db_record["is_event"],
                 "event_detail": db_record["event_detail"],
                 "remarks": db_record["remarks"] or "",
-                "scheduled_date": db_record["scheduled_date"] or f"{year}-06-01",
+                "scheduled_date": s_date,
                 "auditor": db_record["auditor"] or "",
                 "symbol": "◎" if a_type == "간접" else "●"
             }
@@ -270,7 +324,7 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
         if year in events:
             audit_type = "간접"
             detail = events[year]
-            scheduled_date = f"{year}-06-01"
+            scheduled_date = f"{year}-{ref_month:02d}-01"
             
             schedule[year] = {
                 "id": None,
@@ -289,13 +343,13 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
             ref_type = "간접"
             continue
 
-        # 4.3 자동 인터벌 계산 (2년 교차 롤링)
+        # 4.3 자동 인터벌 계산 (2년 교차 롤링 - 이전 수행 월 유지)
         if ref_year is not None:
             diff = year - ref_year
             if diff == 2:
                 audit_type = "간접" if ref_type == "직접" else "직접"
                 symbol = "◎" if audit_type == "간접" else "●"
-                scheduled_date = f"{year}-06-01"
+                scheduled_date = f"{year}-{ref_month:02d}-01"
                 
                 schedule[year] = {
                     "id": None,
@@ -305,7 +359,7 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                     "status": "계획",
                     "is_event": False,
                     "event_detail": None,
-                    "remarks": "2년 주기 정기 심사",
+                    "remarks": f"2년 주기 정기 심사 ({ref_month}월)",
                     "scheduled_date": scheduled_date,
                     "auditor": "",
                     "symbol": symbol
@@ -329,8 +383,8 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                     "status": "계획",
                     "is_event": False,
                     "event_detail": None,
-                    "remarks": "2년 주기 정기 심사",
-                    "scheduled_date": f"{year}-06-01",
+                    "remarks": f"2년 주기 정기 심사 ({ref_month}월)",
+                    "scheduled_date": f"{year}-{ref_month:02d}-01",
                     "auditor": "",
                     "symbol": symbol
                 }
@@ -451,6 +505,99 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             self.send_json_response(targets)
             return
 
+        elif path == "/api/targets/tree":
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            categories = ["내부심사", "운항정비 지점", "운항정비 위탁", "중정비 위탁", "정비 협력업체"]
+            cursor.execute("""
+                SELECT t.*, 
+                    (SELECT COUNT(*) FROM audit_findings f WHERE f.target_id = t.id) as total_findings,
+                    (SELECT COUNT(*) FROM audit_findings f WHERE f.target_id = t.id AND f.action_status != '조치완료') as open_findings,
+                    (SELECT MAX(scheduled_date) FROM audit_history h WHERE h.target_id = t.id AND h.status = '완료') as last_audit_date,
+                    (SELECT MIN(scheduled_date) FROM audit_history h WHERE h.target_id = t.id AND h.status = '계획') as next_audit_date
+                FROM audit_targets t
+                ORDER BY t.station_name ASC
+            """)
+            rows = [dict(r) for r in cursor.fetchall()]
+            conn.close()
+
+            tree = {cat: [] for cat in categories}
+            for r in rows:
+                cat = r.get("category", "운항정비 위탁")
+                if cat not in tree:
+                    tree[cat] = []
+                tree[cat].append(r)
+
+            self.send_json_response({
+                "categories": categories,
+                "tree": tree,
+                "total_targets": len(rows)
+            })
+            return
+
+        elif path.startswith("/api/targets/") and path.endswith("/analysis"):
+            parts = path.strip("/").split("/")
+            if len(parts) == 4 and parts[0] == "api" and parts[1] == "targets" and parts[3] == "analysis":
+                try:
+                    target_id = int(parts[2])
+                except ValueError:
+                    self.send_json_response({"detail": "잘못된 대상 ID입니다."}, 400)
+                    return
+
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM audit_targets WHERE id = ?", (target_id,))
+                target = cursor.fetchone()
+                if not target:
+                    conn.close()
+                    self.send_json_response({"detail": "심사 대상을 찾을 수 없습니다."}, 404)
+                    return
+                target_dict = dict(target)
+
+                # 심사 이력
+                cursor.execute("""
+                    SELECT * FROM audit_history 
+                    WHERE target_id = ? 
+                    ORDER BY year DESC, scheduled_date DESC
+                """, (target_id,))
+                histories = [dict(r) for r in cursor.fetchall()]
+
+                # 지적/개선조치 사항
+                cursor.execute("""
+                    SELECT * FROM audit_findings 
+                    WHERE target_id = ? 
+                    ORDER BY audit_date DESC, id DESC
+                """, (target_id,))
+                findings = [dict(r) for r in cursor.fetchall()]
+
+                # 카테고리별/태그별 통계
+                cursor.execute("""
+                    SELECT category_tag, COUNT(*) as count 
+                    FROM audit_findings 
+                    WHERE target_id = ? AND category_tag != ''
+                    GROUP BY category_tag
+                    ORDER BY count DESC
+                """, (target_id,))
+                tag_stats = [dict(r) for r in cursor.fetchall()]
+
+                # 사전 착안사항 메모
+                cursor.execute("SELECT * FROM audit_focus_notes WHERE target_id = ?", (target_id,))
+                focus_note = cursor.fetchone()
+                focus_dict = dict(focus_note) if focus_note else None
+
+                conn.close()
+                multi_year_schedule = generate_schedule_for_target_api(target_id, 2026, 2030)
+
+                self.send_json_response({
+                    "target": target_dict,
+                    "histories": histories,
+                    "findings": findings,
+                    "tag_stats": tag_stats,
+                    "focus_note": focus_dict,
+                    "schedule_2026_2030": multi_year_schedule
+                })
+                return
+
         elif path == "/api/dashboard":
             year = int(query_params.get("year", [2026])[0])
             
@@ -468,9 +615,12 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             year_audit_list = []
             
             for t in targets:
-                # 비운항 제외 스케줄 생성
-                scheds = generate_schedule_for_target_api(t["id"], start_year=year, end_year=year)
+                # 비운항 제외 스케줄 생성 (2026년 이후는 2026년 기준 롤링, 2025년 이전은 실제 DB 이력만 반영)
+                sched_start = 2026 if year >= 2026 else year
+                scheds = generate_schedule_for_target_api(t["id"], start_year=sched_start, end_year=year)
                 val = scheds.get(year)
+                if year < 2026 and val and val.get("id") is None:
+                    val = None
                 if val:
                     total_count += 1
                     if val["audit_type"] == "직접":
@@ -1127,6 +1277,171 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
             self.send_json_response({"status": "success", "message": f"비밀번호가 '{new_pw}'(으)로 초기화되었습니다."})
+            return
+
+        elif path == "/api/findings/add":
+            user = self.get_current_user()
+            target_id = data.get("target_id")
+            title = data.get("title", "").strip()
+            if not target_id or not title:
+                self.send_json_response({"detail": "심사 대상과 제목은 필수 항목입니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO audit_findings (
+                    target_id, audit_date, finding_type, category_tag, title, 
+                    finding_detail, regulation_ref, root_cause, action_taken, 
+                    action_status, due_date, auditor
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                target_id,
+                data.get("audit_date") or datetime.date.today().strftime("%Y-%m-%d"),
+                data.get("finding_type") or "Finding",
+                data.get("category_tag", "").strip(),
+                title,
+                data.get("finding_detail", "").strip(),
+                data.get("regulation_ref", "").strip(),
+                data.get("root_cause", "").strip(),
+                data.get("action_taken", "").strip(),
+                data.get("action_status") or "조치완료",
+                data.get("due_date", ""),
+                data.get("auditor", "").strip() or (user["name"] if user else "")
+            ))
+            fid = c.lastrowid
+            conn.commit()
+            conn.close()
+            self.send_json_response({"status": "success", "id": fid, "message": "지적/개선조치 사항이 성공적으로 등록되었습니다."})
+            return
+
+        elif path == "/api/findings/update":
+            user = self.get_current_user()
+            fid = data.get("id")
+            if not fid:
+                self.send_json_response({"detail": "지적사항 ID가 필요합니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("""
+                UPDATE audit_findings SET
+                    audit_date = ?, finding_type = ?, category_tag = ?, title = ?,
+                    finding_detail = ?, regulation_ref = ?, root_cause = ?, action_taken = ?,
+                    action_status = ?, due_date = ?, auditor = ?
+                WHERE id = ?
+            """, (
+                data.get("audit_date"),
+                data.get("finding_type"),
+                data.get("category_tag", ""),
+                data.get("title"),
+                data.get("finding_detail", ""),
+                data.get("regulation_ref", ""),
+                data.get("root_cause", ""),
+                data.get("action_taken", ""),
+                data.get("action_status"),
+                data.get("due_date", ""),
+                data.get("auditor", ""),
+                fid
+            ))
+            conn.commit()
+            conn.close()
+            self.send_json_response({"status": "success", "message": "지적사항이 성공적으로 수정되었습니다."})
+            return
+
+        elif path == "/api/findings/delete":
+            user = self.get_current_user()
+            fid = data.get("id")
+            if not fid:
+                self.send_json_response({"detail": "지적사항 ID가 필요합니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("DELETE FROM audit_findings WHERE id = ?", (fid,))
+            conn.commit()
+            conn.close()
+            self.send_json_response({"status": "success", "message": "지적사항이 삭제되었습니다."})
+            return
+
+        elif path == "/api/targets/focus-notes":
+            user = self.get_current_user()
+            target_id = data.get("target_id")
+            if not target_id:
+                self.send_json_response({"detail": "심사 대상 ID가 필요합니다."}, 400)
+                return
+
+            focus_points = data.get("focus_points", "")
+            checklist_notes = data.get("checklist_notes", "")
+            updater_name = user["name"] if user else "심사원"
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO audit_focus_notes (target_id, focus_points, checklist_notes, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, datetime('now','localtime'))
+                ON CONFLICT(target_id) DO UPDATE SET
+                    focus_points = excluded.focus_points,
+                    checklist_notes = excluded.checklist_notes,
+                    updated_by = excluded.updated_by,
+                    updated_at = datetime('now','localtime')
+            """, (target_id, focus_points, checklist_notes, updater_name))
+            conn.commit()
+            conn.close()
+            self.send_json_response({"status": "success", "message": "사전 심사 착안사항 및 체크리스트가 저장되었습니다."})
+            return
+
+        elif path == "/api/findings/import":
+            user = self.get_current_user()
+            items = data.get("items", [])
+            if not items:
+                self.send_json_response({"detail": "임포트할 데이터가 없습니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            imported_count = 0
+            for item in items:
+                target_id = item.get("target_id")
+                if not target_id:
+                    tname = item.get("target_name")
+                    if tname:
+                        c.execute("SELECT id FROM audit_targets WHERE station_name = ? OR station_name LIKE ?", (tname, f"%{tname}%"))
+                        row = c.fetchone()
+                        if row:
+                            target_id = row[0]
+                if not target_id:
+                    continue
+                
+                title = item.get("title", "").strip()
+                if not title:
+                    continue
+
+                c.execute("""
+                    INSERT INTO audit_findings (
+                        target_id, audit_date, finding_type, category_tag, title, 
+                        finding_detail, regulation_ref, root_cause, action_taken, 
+                        action_status, due_date, auditor
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    target_id,
+                    item.get("audit_date") or datetime.date.today().strftime("%Y-%m-%d"),
+                    item.get("finding_type") or "Finding",
+                    item.get("category_tag", "").strip(),
+                    title,
+                    item.get("finding_detail", "").strip(),
+                    item.get("regulation_ref", "").strip(),
+                    item.get("root_cause", "").strip(),
+                    item.get("action_taken", "").strip(),
+                    item.get("action_status") or "조치완료",
+                    item.get("due_date", ""),
+                    item.get("auditor", "").strip()
+                ))
+                imported_count += 1
+
+            conn.commit()
+            conn.close()
+            self.send_json_response({"status": "success", "count": imported_count, "message": f"{imported_count}건의 지적/개선조치 사항이 일괄 등록되었습니다."})
             return
 
         else:

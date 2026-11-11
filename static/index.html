@@ -10,6 +10,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet.js Interactive Vector/Tile Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <!-- Custom Style Sheet -->
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -28,6 +31,9 @@
                 <button class="nav-item" data-tab="mypage" id="nav-mypage">
                     <i class="fa-solid fa-user-check"></i> 내 심사 일정
                     <span class="nav-alert-badge mypage-badge" id="nav-my-alert-count" style="display:none; background:#ec4899;">0</span>
+                </button>
+                <button class="nav-item" data-tab="analysis" id="nav-analysis">
+                    <i class="fa-solid fa-folder-tree"></i> 심사 대상 분석
                 </button>
                 <button class="nav-item" data-tab="calendar">
                     <i class="fa-solid fa-calendar-days"></i> 연간 세부 계획
@@ -71,6 +77,8 @@
                     <div class="year-selector-wrapper">
                         <label for="global-year-select">조회 연도</label>
                         <select id="global-year-select" class="select-field">
+                            <option value="2024">2024년</option>
+                            <option value="2025">2025년</option>
                             <option value="2026" selected>2026년</option>
                             <option value="2027">2027년</option>
                             <option value="2028">2028년</option>
@@ -140,20 +148,74 @@
                             <button class="continent-pill pill-middle-east" data-continent="중동/기타"><span class="dot dot-middle-east"></span> 중동/기타 (<span id="count-middle-east">0</span>)</button>
                         </div>
                         <div class="map-legend">
-                            <span class="legend-item"><span class="legend-dot dot-direct"></span> 직접심사 (●)</span>
+                            <span class="legend-item"><span class="legend-dot dot-direct"></span> 직접심사 (✦ 블링 깜박이)</span>
                             <span class="legend-item"><span class="legend-dot dot-indirect"></span> 간접심사 (◎)</span>
                             <span class="legend-item"><span class="legend-dot dot-current-month"></span> 이달 수행 (펄스)</span>
                         </div>
                     </div>
 
-                    <!-- Map Viewport Wrapper -->
-                    <div class="world-map-wrapper">
-                        <div class="world-map-viewport" id="world-map-viewport">
-                            <img id="world-map-img" src="/static/map_continents_dark.webp" alt="Global Audit Locations Map" class="world-map-image">
-                            <div class="map-markers-layer" id="map-markers-layer">
-                                <!-- Pins dynamically rendered here -->
+                    <!-- High-Resolution Interactive Map Viewport -->
+                    <div class="world-map-wrapper" id="world-map-wrapper">
+                        <!-- Top-Left Floating Yearly Audit Switcher & Breakdown Panel -->
+                        <div class="map-yearly-audit-panel" id="map-yearly-audit-panel">
+                            <div class="map-year-quick-bar" id="map-year-quick-bar">
+                                <span class="map-year-bar-title"><i class="fa-solid fa-calendar-days"></i> 연도별 심사:</span>
+                                <button class="map-year-chip" data-year="2024">24년</button>
+                                <button class="map-year-chip" data-year="2025">25년</button>
+                                <button class="map-year-chip active" data-year="2026">26년</button>
+                                <button class="map-year-chip" data-year="2027">27년</button>
+                                <button class="map-year-chip" data-year="2028">28년</button>
+                                <button class="map-year-chip" data-year="2029">29년</button>
+                                <button class="map-year-chip" data-year="2030">30년</button>
+                            </div>
+                            <div class="map-yearly-summary-bar">
+                                <div class="map-yearly-counts">
+                                    <span class="map-y-stat active" data-type-filter="all" id="map-panel-filter-all">
+                                        전체 <strong id="map-panel-total-cnt">0</strong>
+                                    </span>
+                                    <span class="map-y-stat stat-direct-bling" data-type-filter="직접" id="map-panel-filter-direct">
+                                        <span class="mini-bling-dot"></span> 직접 <strong id="map-panel-direct-cnt">0</strong>
+                                    </span>
+                                    <span class="map-y-stat stat-indirect-pill" data-type-filter="간접" id="map-panel-filter-indirect">
+                                        ◎ 간접 <strong id="map-panel-indirect-cnt">0</strong>
+                                    </span>
+                                </div>
+                                <button class="map-drawer-toggle-btn" id="btn-toggle-map-drawer" title="연도별 품질심사 내역 목록 열기/접기">
+                                    <i class="fa-solid fa-list-ul"></i> <span id="map-drawer-toggle-lbl">내역 접기</span> <i class="fa-solid fa-chevron-up" id="map-drawer-toggle-icon"></i>
+                                </button>
+                            </div>
+                            <div class="map-yearly-drawer" id="map-yearly-drawer">
+                                <div class="map-yearly-list" id="map-yearly-list">
+                                    <!-- Dynamic Yearly Audit Items -->
+                                </div>
                             </div>
                         </div>
+
+                        <!-- Floating Map Controls & Quick Presets -->
+                        <div class="map-floating-controls">
+                            <div class="map-zoom-btn-group">
+                                <button id="btn-map-zoom-in" class="map-zoom-btn" title="확대 (+)"><i class="fa-solid fa-plus"></i></button>
+                                <span id="map-zoom-level-badge" class="map-zoom-badge">Lv 3</span>
+                                <button id="btn-map-zoom-out" class="map-zoom-btn" title="축소 (-)"><i class="fa-solid fa-minus"></i></button>
+                                <button id="btn-map-zoom-reset" class="map-zoom-btn" title="전체 세계 지도 뷰"><i class="fa-solid fa-earth-asia"></i></button>
+                            </div>
+                            <div class="map-preset-btn-group">
+                                <button class="map-preset-btn" data-preset="world"><i class="fa-solid fa-globe"></i> 세계전체</button>
+                                <button class="map-preset-btn" data-preset="asia"><i class="fa-solid fa-location-dot"></i> 동남아/동아시아</button>
+                                <button class="map-preset-btn" data-preset="japan"><i class="fa-solid fa-location-dot"></i> 일본</button>
+                                <button class="map-preset-btn" data-preset="europe"><i class="fa-solid fa-location-dot"></i> 유럽</button>
+                                <button class="map-preset-btn" data-preset="americas"><i class="fa-solid fa-location-dot"></i> 북미</button>
+                                <button class="map-preset-btn" data-preset="korea"><i class="fa-solid fa-location-dot"></i> 국내</button>
+                            </div>
+                            <div class="map-pan-guide">
+                                <button id="btn-toggle-map-routes" class="map-route-toggle-btn active" title="인천(ICN) 허브 기준 글로벌 심사 항로 표시">
+                                    <i class="fa-solid fa-route"></i> 항로
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Leaflet Map Container -->
+                        <div id="leaflet-world-map" class="leaflet-map-container"></div>
 
                         <!-- Floating Detail Tooltip Card -->
                         <div id="map-tooltip" class="map-hover-tooltip" style="display:none;"></div>
@@ -471,6 +533,214 @@
                 </div>
             </section>
 
+            <!-- TAB: PRE-AUDIT TARGET ANALYSIS (심사 대상 분석 & 사전 심사 준비) -->
+            <section id="tab-analysis" class="tab-pane">
+                <div class="analysis-container">
+                    <!-- Left Panel: 5 Folders Tree Explorer -->
+                    <div class="analysis-sidebar">
+                        <div class="analysis-sidebar-header">
+                            <div class="analysis-sidebar-title">
+                                <i class="fa-solid fa-folder-tree" style="color:var(--accent-blue);"></i>
+                                <span>심사 대상 탐색기</span>
+                            </div>
+                            <span class="badge badge-secondary" id="tree-total-count">0개</span>
+                        </div>
+                        <div class="analysis-search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="tree-search-input" placeholder="업체/지점/기종 검색..." />
+                            <button class="btn-icon" id="btn-clear-tree-search" title="검색어 초기화"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div class="tree-quick-filter">
+                            <button class="tree-filter-chip active" data-filter="all">전체</button>
+                            <button class="tree-filter-chip" data-filter="open_findings">⚠️ 미결지적 대상</button>
+                            <button class="tree-filter-chip" data-filter="this_year">📅 당해년도 대상</button>
+                        </div>
+                        <div class="analysis-tree-list" id="analysis-tree-list">
+                            <!-- Dynamic Folders & Target items -->
+                        </div>
+                    </div>
+
+                    <!-- Right Panel: Pre-Audit Analysis Dashboard -->
+                    <div class="analysis-main" id="analysis-main-content">
+                        <!-- Initial Empty State -->
+                        <div class="analysis-empty-state" id="analysis-empty-state">
+                            <div class="empty-icon"><i class="fa-solid fa-plane-circle-exclamation"></i></div>
+                            <h3>심사 대상을 선택해 주세요</h3>
+                            <p>좌측 5개 폴더(내부심사, 운항정비 지점, 운항정비 위탁, 중정비 위탁, 정비 협력업체)에서<br>사전 분석할 업체를 클릭하시면 과거 심사 지적사항 및 중점 착안사항이 표시됩니다.</p>
+                        </div>
+
+                        <!-- Active Target Content (Hidden initially) -->
+                        <div class="analysis-target-view" id="analysis-target-view" style="display:none;">
+                            <!-- Header Banner -->
+                            <div class="analysis-target-header">
+                                <div class="target-header-left">
+                                    <div class="target-badges-row">
+                                        <span class="badge badge-category" id="target-view-category">운항정비 위탁</span>
+                                        <span class="badge badge-status" id="target-view-status">운항</span>
+                                        <span class="badge badge-interval" id="target-view-interval">2년 주기</span>
+                                    </div>
+                                    <h2 class="target-title" id="target-view-name">VAECO (DAD 다낭)</h2>
+                                    <div class="target-specs-row" id="target-view-specs">
+                                        <!-- Aircraft / Engine Pills -->
+                                    </div>
+                                </div>
+                                <div class="target-header-actions">
+                                    <button class="btn btn-outline" id="btn-open-finding-import-modal">
+                                        <i class="fa-solid fa-file-import"></i> 지적사항 일괄 임포트
+                                    </button>
+                                    <button class="btn btn-primary" id="btn-open-new-finding-modal">
+                                        <i class="fa-solid fa-plus-circle"></i> 지적/개선조치 등록
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 4 KPI Summary Cards -->
+                            <div class="analysis-kpi-grid">
+                                <div class="kpi-card">
+                                    <div class="kpi-icon" style="background:rgba(59, 130, 246, 0.15); color:#3b82f6;">
+                                        <i class="fa-solid fa-clipboard-check"></i>
+                                    </div>
+                                    <div class="kpi-body">
+                                        <div class="kpi-label">총 심사 수행 이력</div>
+                                        <div class="kpi-value" id="kpi-audit-history-count">0회</div>
+                                        <div class="kpi-sub" id="kpi-audit-history-sub">최근 수행: -</div>
+                                    </div>
+                                </div>
+                                <div class="kpi-card">
+                                    <div class="kpi-icon" style="background:rgba(239, 68, 68, 0.15); color:#ef4444;">
+                                        <i class="fa-solid fa-triangle-exclamation"></i>
+                                    </div>
+                                    <div class="kpi-body">
+                                        <div class="kpi-label">누적 지적사항 (Findings/CAR)</div>
+                                        <div class="kpi-value" id="kpi-findings-count">0건</div>
+                                        <div class="kpi-sub" id="kpi-findings-sub">CAR: 0 / Finding: 0</div>
+                                    </div>
+                                </div>
+                                <div class="kpi-card">
+                                    <div class="kpi-icon" style="background:rgba(245, 158, 11, 0.15); color:#f59e0b;">
+                                        <i class="fa-solid fa-clock-rotate-left"></i>
+                                    </div>
+                                    <div class="kpi-body">
+                                        <div class="kpi-label">미결 / 조치중 항목</div>
+                                        <div class="kpi-value" id="kpi-open-findings-count" style="color:#f59e0b;">0건</div>
+                                        <div class="kpi-sub" id="kpi-open-findings-sub">사전 심사 시 즉시 점검 필요</div>
+                                    </div>
+                                </div>
+                                <div class="kpi-card">
+                                    <div class="kpi-icon" style="background:rgba(16, 185, 129, 0.15); color:#10b981;">
+                                        <i class="fa-solid fa-calendar-check"></i>
+                                    </div>
+                                    <div class="kpi-body">
+                                        <div class="kpi-label">차기 심사 예정</div>
+                                        <div class="kpi-value" id="kpi-next-audit-date">-</div>
+                                        <div class="kpi-sub" id="kpi-next-audit-type">심사 방식: -</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 2-Column Content Layout -->
+                            <div class="analysis-content-grid">
+                                <!-- Left Column: Focus Notes, Recurring Areas, Schedule -->
+                                <div class="analysis-col-left">
+                                    <!-- Audit Focus Guide Box -->
+                                    <div class="section-card focus-card">
+                                        <div class="card-header-flex">
+                                            <div class="card-title">
+                                                <i class="fa-solid fa-bullseye" style="color:#ef4444;"></i>
+                                                <span>차기 심사 중점 착안사항 (Audit Focus)</span>
+                                            </div>
+                                            <button class="btn btn-sm btn-primary" id="btn-save-focus-note">
+                                                <i class="fa-solid fa-floppy-disk"></i> 착안사항 저장
+                                            </button>
+                                        </div>
+                                        <p class="section-guide-text">
+                                            과거 지적 이력과 특이사항을 고려하여 심사원들이 사전에 중점 검토해야 할 점검 방향과 가이드를 등록합니다.
+                                        </p>
+                                        <textarea id="focus-points-input" class="focus-textarea" placeholder="예: 1. 2024년 측정공구 교정 만료 지적 관련 공구실 전수 실사...&#10;2. B38M 신규 투입 인력 OJT 및 교육훈련 이력 집중 확인..."></textarea>
+                                        
+                                        <div class="checklist-header">
+                                            <label><i class="fa-solid fa-list-check" style="color:var(--accent-blue);"></i> 심사 전 필수 체크리스트 / 사전 확인 메모</label>
+                                        </div>
+                                        <textarea id="checklist-notes-input" class="checklist-textarea" placeholder="- [ ] 현장 공구실 토크렌치 검교정 스티커 전수 확인&#10;- [ ] 최근 3개월 Transit Check 점검표 서명 샘플링&#10;- [ ] 현지 투입 정비사 기종 한정 자격증 사본 대조"></textarea>
+                                        <div class="focus-last-updated" id="focus-last-updated">마지막 수정: -</div>
+                                    </div>
+
+                                    <!-- Tag / Category Vulnerability Analysis -->
+                                    <div class="section-card vulnerability-card">
+                                        <div class="card-title">
+                                            <i class="fa-solid fa-chart-simple" style="color:var(--accent-orange);"></i>
+                                            <span>취약 분야 및 반복 지적 키워드 분석</span>
+                                        </div>
+                                        <div id="vulnerability-stats-container" class="vulnerability-list">
+                                            <!-- Category Bars / Pills -->
+                                        </div>
+                                    </div>
+
+                                    <!-- Multi-Year Timeline Pills (2026-2030) -->
+                                    <div class="section-card schedule-preview-card">
+                                        <div class="card-title">
+                                            <i class="fa-solid fa-timeline" style="color:var(--accent-blue);"></i>
+                                            <span>연도별 심사 계획 및 이행 (2026 ~ 2030)</span>
+                                        </div>
+                                        <div class="multi-year-pills" id="multi-year-pills-container">
+                                            <!-- Dynamic 2026-2030 Pills -->
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Right Column: Findings Timeline & History -->
+                                <div class="analysis-col-right">
+                                    <!-- Findings Section -->
+                                    <div class="section-card findings-card">
+                                        <div class="findings-header">
+                                            <div class="card-title">
+                                                <i class="fa-solid fa-file-circle-exclamation" style="color:#f59e0b;"></i>
+                                                <span>지적사항 및 개선조치 이력 (<span id="findings-total-count">0</span>)</span>
+                                            </div>
+                                            <div class="findings-filter-tabs">
+                                                <button class="finding-tab active" data-type="all">전체</button>
+                                                <button class="finding-tab" data-type="open">미결/조치중</button>
+                                                <button class="finding-tab" data-type="CAR">CAR</button>
+                                                <button class="finding-tab" data-type="Finding">Finding</button>
+                                                <button class="finding-tab" data-type="Observation">Observation</button>
+                                            </div>
+                                        </div>
+                                        <div class="findings-list-container" id="findings-list-container">
+                                            <!-- Dynamic finding cards -->
+                                        </div>
+                                    </div>
+
+                                    <!-- Audit Execution History -->
+                                    <div class="section-card audit-history-card">
+                                        <div class="card-title">
+                                            <i class="fa-solid fa-clock-rotate-left" style="color:var(--text-secondary);"></i>
+                                            <span>과거 심사 수행 이력</span>
+                                        </div>
+                                        <div class="table-responsive">
+                                            <table class="data-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>연도</th>
+                                                        <th>심사 구분</th>
+                                                        <th>수행 일자</th>
+                                                        <th>심사원</th>
+                                                        <th>상태</th>
+                                                        <th>비고</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="target-history-table-body">
+                                                    <!-- Dynamic history rows -->
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- TAB 4: TARGET MANAGEMENT -->
             <section id="tab-manage" class="tab-pane">
                 <div class="filter-bar section-card manage-filter-bar">
@@ -482,12 +752,11 @@
                             <label for="manage-filter-category" style="font-size:12px; color:var(--text-secondary);"><i class="fa-solid fa-tags"></i> 분야:</label>
                             <select id="manage-filter-category" class="select-field" style="padding:6px 10px; font-size:13px; min-width:110px;">
                                 <option value="all">전체 분야</option>
-                                <option value="국내주재">국내 주재정비</option>
-                                <option value="해외주재">해외 주재정비</option>
-                                <option value="국내운항">국내 운항정비 위탁</option>
-                                <option value="해외운항">해외 운항정비 위탁</option>
-                                <option value="중정비">항공기 중정비 위탁</option>
-                                <option value="엔진">엔진 중정비 위탁</option>
+                                <option value="내부심사">내부심사</option>
+                                <option value="운항정비 지점">운항정비 지점</option>
+                                <option value="운항정비 위탁">운항정비 위탁</option>
+                                <option value="중정비 위탁">중정비 위탁</option>
+                                <option value="정비 협력업체">정비 협력업체</option>
                             </select>
                         </div>
                         <div style="display:flex; align-items:center; gap:6px;">
@@ -861,13 +1130,11 @@
                     <div class="form-group col-6">
                         <label for="target-category-select">심사 분야</label>
                         <select id="target-category-select" class="select-field" required>
-                            <option value="내부">내부</option>
-                            <option value="국내운항지점">국내운항지점</option>
-                            <option value="해외운항지점">해외운항지점</option>
-                            <option value="완전위탁업체">완전위탁업체</option>
-                            <option value="엔진정비업체">엔진정비업체</option>
-                            <option value="중정비업체">중정비업체</option>
-                            <option value="국내업체">국내업체</option>
+                            <option value="내부심사">내부심사</option>
+                            <option value="운항정비 지점">운항정비 지점</option>
+                            <option value="운항정비 위탁">운항정비 위탁</option>
+                            <option value="중정비 위탁">중정비 위탁</option>
+                            <option value="정비 협력업체">정비 협력업체</option>
                         </select>
                     </div>
                     <div class="form-group col-6">
@@ -1158,8 +1425,134 @@
         </div>
     </div>
 
-    <!-- Toast Notification Container -->
-    <div id="toast-container" class="toast-container"></div>
+    <!-- MODAL: Finding Add / Edit Modal -->
+    <div class="modal" id="modal-finding">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2 id="finding-modal-title"><i class="fa-solid fa-file-circle-plus" style="color:var(--accent-blue);"></i> 지적사항 및 개선조치 등록</h2>
+                <button class="close-btn" id="btn-close-finding-modal">&times;</button>
+            </div>
+            <form id="finding-form">
+                <input type="hidden" id="finding-id" />
+                <input type="hidden" id="finding-target-id" />
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label>심사 대상처</label>
+                        <input type="text" id="finding-target-name-display" class="input-field" readonly style="background:rgba(255,255,255,0.05); font-weight:600;" />
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="finding-audit-date">심사/지적 일자 <span style="color:#ef4444;">*</span></label>
+                        <input type="date" id="finding-audit-date" class="input-field" required />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-4">
+                        <label for="finding-type">지적 구분 <span style="color:#ef4444;">*</span></label>
+                        <select id="finding-type" class="select-field" required>
+                            <option value="CAR">CAR (시정조치요구)</option>
+                            <option value="Finding" selected>Finding (지적사항)</option>
+                            <option value="Observation">Observation (관찰사항)</option>
+                            <option value="Recommendation">Recommendation (권고사항)</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-4">
+                        <label for="finding-category-tag">취약/분류 분야</label>
+                        <select id="finding-category-tag" class="select-field">
+                            <option value="공구관리">공구관리</option>
+                            <option value="작업절차">작업절차</option>
+                            <option value="기술문서">기술문서</option>
+                            <option value="교육훈련">교육훈련</option>
+                            <option value="자재관리">자재관리</option>
+                            <option value="시설/환경">시설/환경</option>
+                            <option value="인력/조직">인력/조직</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-4">
+                        <label for="finding-action-status">조치 상태 <span style="color:#ef4444;">*</span></label>
+                        <select id="finding-action-status" class="select-field" required>
+                            <option value="조치완료" selected>✅ 조치완료</option>
+                            <option value="조치중">⏳ 조치중</option>
+                            <option value="미결">⚠️ 미결</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="finding-title">지적사항 제목 <span style="color:#ef4444;">*</span></label>
+                    <input type="text" id="finding-title" class="input-field" placeholder="예: 교정검사 유효기간 만료 측정공구 보관" required />
+                </div>
+
+                <div class="form-group">
+                    <label for="finding-detail">상세 지적 내용 <span style="color:#ef4444;">*</span></label>
+                    <textarea id="finding-detail" class="textarea-field" rows="3" placeholder="지적 내용, 현장 상황, 위반 사실 등을 상세히 입력하세요." required></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="finding-reg-ref">근거 규정 / 매뉴얼 조항</label>
+                        <input type="text" id="finding-reg-ref" class="input-field" placeholder="예: 정비규정 제5장 제12조, 운항정비매뉴얼 3.4절" />
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="finding-auditor">담당 심사원</label>
+                        <input type="text" id="finding-auditor" class="input-field" placeholder="예: 홍길동, 김철수" />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="finding-root-cause">원인 분석 (Root Cause)</label>
+                    <textarea id="finding-root-cause" class="textarea-field" rows="2" placeholder="발생 원인 및 근본 취약요인을 입력하세요."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="finding-action-taken">개선조치 및 재발방지대책</label>
+                    <textarea id="finding-action-taken" class="textarea-field" rows="2" placeholder="업체/피심사부서에서 수행한 시정조치 및 재발방지대책을 입력하세요."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="finding-due-date">조치 기한 / 완료일</label>
+                    <input type="date" id="finding-due-date" class="input-field" />
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-finding-modal">취소</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-finding">저장하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Findings Bulk Import Modal -->
+    <div class="modal" id="modal-finding-import">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-file-import" style="color:var(--accent-blue);"></i> 지적사항 일괄 임포트 (Excel / JSON)</h2>
+                <button class="close-btn" id="btn-close-finding-import-modal">&times;</button>
+            </div>
+            <div style="padding:10px 0;">
+                <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">
+                    엑셀에서 복사한 탭 구분 데이터(TSV) 또는 JSON 데이터를 아래 입력창에 붙여넣어 일괄 등록할 수 있습니다.
+                </p>
+                <div style="margin-bottom:12px; display:flex; gap:8px;">
+                    <button type="button" class="btn btn-sm btn-outline" id="btn-fill-import-sample">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> 예시 데이터 채우기
+                    </button>
+                </div>
+                <div class="form-group">
+                    <label for="finding-import-textarea">데이터 붙여넣기 (컬럼: 일자 | 구분 | 분류태그 | 제목 | 상세내용 | 근거규정 | 원인 | 개선조치 | 상태 | 심사원)</label>
+                    <textarea id="finding-import-textarea" class="textarea-field" rows="8" placeholder="2025-08-15&#9;Finding&#9;작업절차&#9;점검표 서명 누락&#9;Transit Check 서명 누락&#9;정비규정 3조&#9;교대 시 인계 미흡&#9;SOP 재교육&#9;조치완료&#9;최병근"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-finding-import-modal">취소</button>
+                    <button type="button" class="btn btn-primary" id="btn-submit-finding-import">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> 일괄 등록 실행
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Application Script -->
     <script src="/static/main.js"></script>
