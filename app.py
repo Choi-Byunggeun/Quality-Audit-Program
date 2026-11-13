@@ -21,7 +21,7 @@ if not os.path.exists(STATIC_DIR):
     alt_static = os.path.join(os.path.dirname(BASE_DIR), "static")
     if os.path.exists(alt_static):
         STATIC_DIR = alt_static
-PORT = 8000
+PORT = int(os.environ.get("PORT", 8000))
 
 # 메모리 세션 저장소 (token -> user_dict)
 ACTIVE_SESSIONS = {}
