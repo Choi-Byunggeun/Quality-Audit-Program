@@ -8,8 +8,13 @@ import re
 import calendar
 import uuid
 import secrets
+import io
+import base64
+import openpyxl
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CHECKLIST_DIR = os.path.join(BASE_DIR, "품질심사 체크리스트")
+os.makedirs(CHECKLIST_DIR, exist_ok=True)
 DB_PATH = os.path.join(BASE_DIR, "audit.db")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 if not os.path.exists(STATIC_DIR):
@@ -199,6 +204,240 @@ _ensure_auditors_table()
 _ensure_targets_schema()
 _ensure_users_table()
 _ensure_findings_schema()
+
+# 계획표(2027년 정비부문 품질심사 계획표 R.0) 기준 표준 점검표 카탈로그 매핑
+STANDARD_CHECKLIST_CATALOG = [
+    {"code": "TW-MNT-001", "title": "항공기기술 품질심사 점검표", "category": "내부 부서", "targets": "항공기기술"},
+    {"code": "TW-MNT-002", "title": "정비기획 품질심사 점검표", "category": "내부 부서", "targets": "정비기획"},
+    {"code": "TW-MNT-003", "title": "정비자재 품질심사 점검표", "category": "내부 부서", "targets": "정비자재"},
+    {"code": "TW-MNT-005", "title": "정비통제 품질심사 점검표", "category": "내부 부서", "targets": "정비통제"},
+    {"code": "TW-MNT-007", "title": "주재정비공항 품질심사 점검표", "category": "해외운항지점,국내운항지점", "targets": "국내운항지점,해외운항지점"},
+    {"code": "TW-MNT-008", "title": "위탁정비업체 품질심사 점검표", "category": "완전위탁업체,엔진정비업체,중정비업체,국내업체", "targets": "완전위탁업체,엔진정비업체,중정비업체,대한항공,KAEMS,N3,Lufthansa,GE ON WINGS,Sharp"},
+    {"code": "TW-MNT-010", "title": "정비기지공항(운항정비1,2) 품질심사 점검표", "category": "내부 부서", "targets": "운항정비1,2"},
+    {"code": "TW-MNT-012", "title": "부품수리 품질심사 점검표", "category": "내부 부서", "targets": "부품수리"},
+    {"code": "TW-MNT-013", "title": "도급업체 품질심사 점검표", "category": "국내업체", "targets": "대동금속"},
+    {"code": "TW-MNT-014", "title": "엔진기술 / 협력업체 품질심사 점검표", "category": "내부 부서,국내업체", "targets": "엔진기술,고암에이스항공,DMT"},
+]
+
+def resolve_default_template_code(station_name: str, category: str) -> str:
+    """심사 대상명 및 A열 카테고리에 따른 기본 점검표 코드(TW-MNT-xxx) 자동 매핑"""
+    s = (station_name or "").strip()
+    cat = (category or "").strip()
+    if cat == "내부 부서" or "내부" in cat:
+        if "항공기기술" in s:
+            return "TW-MNT-001"
+        if "정비기획" in s:
+            return "TW-MNT-002"
+        if "정비자재" in s:
+            return "TW-MNT-003"
+        if "정비통제" in s:
+            return "TW-MNT-005"
+        if "운항정비" in s:
+            return "TW-MNT-010"
+        if "부품수리" in s:
+            return "TW-MNT-012"
+        if "엔진기술" in s:
+            return "TW-MNT-014"
+        return "TW-MNT-005"
+    if cat in ("해외운항지점", "국내운항지점"):
+        return "TW-MNT-007"
+    if cat == "국내업체":
+        if "대동금속" in s:
+            return "TW-MNT-013"
+        if "고암" in s or "DMT" in s.upper():
+            return "TW-MNT-014"
+        return "TW-MNT-008"
+    return "TW-MNT-008"
+
+def _ensure_checklists_schema():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS checklist_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            revision TEXT DEFAULT '',
+            category TEXT DEFAULT '',
+            target_keywords TEXT DEFAULT '',
+            excel_path TEXT DEFAULT '',
+            header_title TEXT DEFAULT '',
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS checklist_template_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_id INTEGER NOT NULL,
+            seq_no INTEGER DEFAULT 0,
+            section_no TEXT DEFAULT '',
+            item_no TEXT NOT NULL,
+            requirement TEXT NOT NULL,
+            external_ref TEXT DEFAULT '',
+            internal_ref TEXT DEFAULT '',
+            excel_row INTEGER DEFAULT 0,
+            FOREIGN KEY (template_id) REFERENCES checklist_templates(id)
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS checklist_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_id INTEGER NOT NULL,
+            target_id INTEGER NOT NULL,
+            audit_year INTEGER NOT NULL DEFAULT 2026,
+            audit_no TEXT DEFAULT 'YY-QA-XXX',
+            audit_date TEXT DEFAULT '',
+            auditor TEXT DEFAULT '',
+            audit_purpose TEXT DEFAULT 'Schedule',
+            audit_purpose_other TEXT DEFAULT '',
+            auditee_team TEXT DEFAULT '',
+            auditee_coordinator TEXT DEFAULT '',
+            auditee_title TEXT DEFAULT '',
+            auditee_phone TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            status TEXT DEFAULT '작성중',
+            responses_json TEXT DEFAULT '{}',
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (template_id) REFERENCES checklist_templates(id),
+            FOREIGN KEY (target_id) REFERENCES audit_targets(id)
+        )
+    """)
+    # 표준 카탈로그 기본 레코드 보장
+    for item in STANDARD_CHECKLIST_CATALOG:
+        c.execute("SELECT id FROM checklist_templates WHERE code = ?", (item["code"],))
+        if not c.fetchone():
+            c.execute("""
+                INSERT INTO checklist_templates (code, title, category, target_keywords)
+                VALUES (?, ?, ?, ?)
+            """, (item["code"], item["title"], item["category"], item["targets"]))
+    conn.commit()
+    conn.close()
+
+def parse_and_import_checklist_excel(excel_path: str, override_code: str = None, override_category: str = None):
+    """엑셀 점검표 파일(예: (TW-MNT-005) 정비통제 품질심사 점검표 (R.13).xlsx)을 파싱하여 DB에 등록/업데이트"""
+    if not os.path.exists(excel_path):
+        return None
+    fname = os.path.basename(excel_path)
+    # 계획표 엑셀 파일은 제외
+    if "계획표" in fname or "실시이력" in fname or "스케줄" in fname or "현황" in fname or "검토요청서" in fname:
+        return None
+
+    try:
+        wb = openpyxl.load_workbook(excel_path, data_only=True)
+    except Exception:
+        return None
+
+    ws = wb["CheckList"] if "CheckList" in wb.sheetnames else wb.active
+    # Requirement 헤더 행 탐색 (보통 15행)
+    header_row = None
+    for r in range(1, min(30, ws.max_row + 1)):
+        row_vals = [str(ws.cell(r, col).value or "").strip() for col in range(1, min(14, ws.max_column + 1))]
+        if any("Requirement" in v for v in row_vals):
+            header_row = r
+            break
+    if not header_row:
+        return None
+
+    # 파일명에서 코드(TW-MNT-xxx), 제목, 리비전(R.xx) 추출
+    m_code = re.search(r'(TW-[A-Z]+-\d+)', fname, re.IGNORECASE)
+    code = (override_code or (m_code.group(1).upper() if m_code else os.path.splitext(fname)[0][:20])).strip()
+
+    m_rev = re.search(r'\((R\.\d+)\)', fname, re.IGNORECASE)
+    revision = m_rev.group(1).upper() if m_rev else ""
+
+    header_title = str(ws.cell(1, 1).value or "").strip()
+    clean_title = re.sub(r'^\([^)]+\)\s*', '', os.path.splitext(fname)[0])
+    clean_title = re.sub(r'\s*\(R\.\d+\)\s*$', '', clean_title).strip()
+    if not clean_title:
+        clean_title = header_title or code
+
+    # 표준 카탈로그에서 기본 카테고리/타겟 참조
+    std_entry = next((x for x in STANDARD_CHECKLIST_CATALOG if x["code"] == code), None)
+    category = override_category or (std_entry["category"] if std_entry else "내부 부서")
+    target_kw = std_entry["targets"] if std_entry else ""
+
+    items = []
+    last_section = ""
+    seq_counter = 0
+    for r in range(header_row + 1, ws.max_row + 1):
+        req_val = ws.cell(r, 4).value
+        item_no_val = ws.cell(r, 3).value
+        if req_val is None or str(req_val).strip() == "":
+            continue
+        seq_counter += 1
+        raw_seq = ws.cell(r, 1).value
+        seq_no = int(raw_seq) if isinstance(raw_seq, (int, float)) else seq_counter
+        sec_val = ws.cell(r, 2).value
+        if sec_val is not None and str(sec_val).strip() != "":
+            last_section = str(sec_val).strip()
+        item_no = str(item_no_val if item_no_val is not None else seq_counter).strip()
+        requirement = str(req_val).strip()
+        ext_ref = str(ws.cell(r, 5).value or "").strip()
+        int_ref = str(ws.cell(r, 6).value or "").strip()
+        items.append({
+            "seq_no": seq_no,
+            "section_no": last_section,
+            "item_no": item_no,
+            "requirement": requirement,
+            "external_ref": ext_ref,
+            "internal_ref": int_ref,
+            "excel_row": r
+        })
+
+    if not items:
+        return None
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT id FROM checklist_templates WHERE code = ?", (code,))
+    row = c.fetchone()
+    if row:
+        tid = row["id"]
+        c.execute("""
+            UPDATE checklist_templates
+            SET title = ?, revision = ?, category = ?, target_keywords = ?,
+                excel_path = ?, header_title = ?, updated_at = datetime('now','localtime')
+            WHERE id = ?
+        """, (clean_title, revision, category, target_kw, excel_path, header_title, tid))
+    else:
+        c.execute("""
+            INSERT INTO checklist_templates (code, title, revision, category, target_keywords, excel_path, header_title)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (code, clean_title, revision, category, target_kw, excel_path, header_title))
+        tid = c.lastrowid
+
+    c.execute("DELETE FROM checklist_template_items WHERE template_id = ?", (tid,))
+    for it in items:
+        c.execute("""
+            INSERT INTO checklist_template_items
+            (template_id, seq_no, section_no, item_no, requirement, external_ref, internal_ref, excel_row)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (tid, it["seq_no"], it["section_no"], it["item_no"], it["requirement"], it["external_ref"], it["internal_ref"], it["excel_row"]))
+
+    conn.commit()
+    conn.close()
+    return {"id": tid, "code": code, "title": clean_title, "revision": revision, "item_count": len(items)}
+
+def sync_checklist_templates_from_excel():
+    """품질심사 체크리스트 폴더 및 루트 폴더의 점검표 엑셀을 스캔하여 자동 등록"""
+    scan_dirs = [CHECKLIST_DIR, BASE_DIR]
+    imported = []
+    seen_codes = set()
+    for d in scan_dirs:
+        if not os.path.exists(d):
+            continue
+        for fname in sorted(os.listdir(d)):
+            if not fname.lower().endswith((".xlsx", ".xlsm")) or fname.startswith("~$"):
+                continue
+            fpath = os.path.join(d, fname)
+            res = parse_and_import_checklist_excel(fpath)
+            if res and res["code"] not in seen_codes:
+                seen_codes.add(res["code"])
+                imported.append(res)
+    return imported
+
+_ensure_checklists_schema()
+sync_checklist_templates_from_excel()
 
 def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end_year: int = 2030):
     conn = get_db_connection()
@@ -889,6 +1128,320 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             self.send_json_response(users)
             return
 
+        # ── 품질심사 체크리스트(설문형 점검표) & 엑셀 다운로드 API ───────────
+        elif path == "/api/checklists/templates":
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("""
+                SELECT t.*,
+                       (SELECT COUNT(*) FROM checklist_template_items i WHERE i.template_id = t.id) as item_count,
+                       (SELECT COUNT(*) FROM checklist_sessions s WHERE s.template_id = t.id) as session_count
+                FROM checklist_templates t
+                ORDER BY t.code ASC
+            """)
+            templates = []
+            for r in c.fetchall():
+                d = dict(r)
+                d["has_excel"] = bool(d.get("excel_path") and os.path.exists(d["excel_path"]))
+                d["excel_filename"] = os.path.basename(d["excel_path"]) if d.get("excel_path") else ""
+                templates.append(d)
+            conn.close()
+            self.send_json_response(templates)
+            return
+
+        elif path == "/api/checklists/sessions":
+            year = query_params.get("year", [None])[0]
+            target_id = query_params.get("target_id", [None])[0]
+            conn = get_db_connection()
+            c = conn.cursor()
+            sql = """
+                SELECT s.*,
+                       t.station_name, t.category as target_category, t.operation_status,
+                       tpl.code as template_code, tpl.title as template_title, tpl.revision as template_revision,
+                       (SELECT COUNT(*) FROM checklist_template_items i WHERE i.template_id = s.template_id) as total_items
+                FROM checklist_sessions s
+                JOIN audit_targets t ON s.target_id = t.id
+                JOIN checklist_templates tpl ON s.template_id = tpl.id
+                WHERE 1=1
+            """
+            params = []
+            if year:
+                sql += " AND s.audit_year = ?"
+                params.append(int(year))
+            if target_id:
+                sql += " AND s.target_id = ?"
+                params.append(int(target_id))
+            sql += " ORDER BY s.updated_at DESC, s.id DESC"
+            c.execute(sql, tuple(params))
+            rows = []
+            for r in c.fetchall():
+                d = dict(r)
+                try:
+                    resp = json.loads(d.get("responses_json") or "{}")
+                except Exception:
+                    resp = {}
+                s_cnt = sum(1 for v in resp.values() if isinstance(v, dict) and v.get("result") == "S")
+                us_cnt = sum(1 for v in resp.values() if isinstance(v, dict) and v.get("result") == "U/S")
+                na_cnt = sum(1 for v in resp.values() if isinstance(v, dict) and v.get("result") == "N/A")
+                d["s_count"] = s_cnt
+                d["us_count"] = us_cnt
+                d["na_count"] = na_cnt
+                d["answered_count"] = s_cnt + us_cnt + na_cnt
+                rows.append(d)
+            conn.close()
+            self.send_json_response(rows)
+            return
+
+        elif path == "/api/checklists/session/load":
+            target_id = int(query_params.get("target_id", [0])[0])
+            year = int(query_params.get("year", [2026])[0])
+            req_tpl_code = query_params.get("template_code", [None])[0]
+            session_id = query_params.get("session_id", [None])[0]
+
+            conn = get_db_connection()
+            c = conn.cursor()
+
+            session_row = None
+            if session_id:
+                c.execute("SELECT * FROM checklist_sessions WHERE id = ?", (int(session_id),))
+                session_row = c.fetchone()
+                if session_row:
+                    target_id = session_row["target_id"]
+                    year = session_row["audit_year"]
+
+            c.execute("SELECT * FROM audit_targets WHERE id = ?", (target_id,))
+            target = c.fetchone()
+            if not target:
+                conn.close()
+                self.send_json_response({"detail": "심사 대상을 찾을 수 없습니다."}, 404)
+                return
+            target_dict = dict(target)
+
+            # 매칭되는 기본 점검표 코드 결정
+            default_code = req_tpl_code or resolve_default_template_code(target_dict["station_name"], target_dict["category"])
+
+            if not session_row and not req_tpl_code:
+                c.execute("""
+                    SELECT * FROM checklist_sessions
+                    WHERE target_id = ? AND audit_year = ?
+                    ORDER BY updated_at DESC LIMIT 1
+                """, (target_id, year))
+                session_row = c.fetchone()
+
+            if session_row and not req_tpl_code:
+                c.execute("SELECT * FROM checklist_templates WHERE id = ?", (session_row["template_id"],))
+                tpl_row = c.fetchone()
+            else:
+                c.execute("SELECT * FROM checklist_templates WHERE code = ?", (default_code,))
+                tpl_row = c.fetchone()
+                if not tpl_row:
+                    c.execute("SELECT * FROM checklist_templates ORDER BY id ASC LIMIT 1")
+                    tpl_row = c.fetchone()
+
+            tpl_dict = dict(tpl_row) if tpl_row else None
+            items = []
+            fallback_used = False
+            if tpl_dict:
+                c.execute("""
+                    SELECT * FROM checklist_template_items
+                    WHERE template_id = ?
+                    ORDER BY excel_row ASC, seq_no ASC, id ASC
+                """, (tpl_dict["id"],))
+                items = [dict(r) for r in c.fetchall()]
+                # 아직 해당 양식의 엑셀 파일이 등록되지 않아 문항이 0개인 경우, 예시 양식(TW-MNT-005 등 문항이 있는 템플릿) 문항을 안내와 함께 로드
+                if len(items) == 0:
+                    c.execute("""
+                        SELECT tpl.* FROM checklist_templates tpl
+                        WHERE EXISTS (SELECT 1 FROM checklist_template_items i WHERE i.template_id = tpl.id)
+                        ORDER BY CASE WHEN tpl.code = 'TW-MNT-005' THEN 0 ELSE 1 END, tpl.id ASC
+                        LIMIT 1
+                    """)
+                    fb_tpl = c.fetchone()
+                    if fb_tpl:
+                        c.execute("""
+                            SELECT * FROM checklist_template_items
+                            WHERE template_id = ?
+                            ORDER BY excel_row ASC, seq_no ASC, id ASC
+                        """, (fb_tpl["id"],))
+                        items = [dict(r) for r in c.fetchall()]
+                        fallback_used = True
+                        tpl_dict["fallback_from_code"] = fb_tpl["code"]
+                        tpl_dict["fallback_from_title"] = fb_tpl["title"]
+
+            # 해당 연도 스케줄 정보(심사일자, 담당 심사원) 자동 채움 참조
+            sched_map = generate_schedule_for_target_api(target_id, start_year=min(2026, year), end_year=max(2026, year))
+            yr_sched = sched_map.get(year) or {}
+
+            if session_row:
+                sess_dict = dict(session_row)
+                try:
+                    sess_dict["responses"] = json.loads(sess_dict.get("responses_json") or "{}")
+                except Exception:
+                    sess_dict["responses"] = {}
+            else:
+                short_yr = str(year)[-2:]
+                num_suffix = re.sub(r'\D', '', (tpl_dict["code"] if tpl_dict else "001")) or "001"
+                sess_dict = {
+                    "id": None,
+                    "template_id": tpl_dict["id"] if tpl_dict else 1,
+                    "target_id": target_id,
+                    "audit_year": year,
+                    "audit_no": f"{short_yr}-QA-{int(num_suffix):03d}",
+                    "audit_date": yr_sched.get("scheduled_date") or datetime.date.today().strftime("%Y-%m-%d"),
+                    "auditor": yr_sched.get("auditor") or "",
+                    "audit_purpose": "Schedule",
+                    "audit_purpose_other": "",
+                    "auditee_team": target_dict["station_name"],
+                    "auditee_coordinator": "",
+                    "auditee_title": "",
+                    "auditee_phone": "",
+                    "remark": yr_sched.get("remarks") or "",
+                    "status": "작성중",
+                    "responses": {}
+                }
+
+            conn.close()
+            self.send_json_response({
+                "target": target_dict,
+                "template": tpl_dict,
+                "default_template_code": default_code,
+                "fallback_used": fallback_used,
+                "items": items,
+                "session": sess_dict
+            })
+            return
+
+        elif path.startswith("/api/checklists/session/") and path.endswith("/export"):
+            parts = path.strip("/").split("/")
+            try:
+                session_id = int(parts[3])
+            except (IndexError, ValueError):
+                self.send_json_response({"detail": "잘못된 세션 ID입니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("""
+                SELECT s.*, t.station_name, t.category as target_category,
+                       tpl.code as tpl_code, tpl.title as tpl_title, tpl.revision as tpl_rev,
+                       tpl.excel_path as tpl_excel_path, tpl.header_title as tpl_header_title
+                FROM checklist_sessions s
+                JOIN audit_targets t ON s.target_id = t.id
+                JOIN checklist_templates tpl ON s.template_id = tpl.id
+                WHERE s.id = ?
+            """, (session_id,))
+            sess = c.fetchone()
+            if not sess:
+                conn.close()
+                self.send_json_response({"detail": "저장된 체크리스트 세션을 찾을 수 없습니다."}, 404)
+                return
+            sess_dict = dict(sess)
+
+            c.execute("""
+                SELECT * FROM checklist_template_items
+                WHERE template_id = ?
+                ORDER BY excel_row ASC, seq_no ASC, id ASC
+            """, (sess_dict["template_id"],))
+            items = [dict(r) for r in c.fetchall()]
+
+            # 만약 해당 템플릿에 직접 등록된 문항이 없어 기본 양식(TW-MNT-005)으로 작성된 경우 폴백
+            excel_path = sess_dict.get("tpl_excel_path") or ""
+            if not items or not excel_path or not os.path.exists(excel_path):
+                c.execute("SELECT * FROM checklist_templates WHERE code = 'TW-MNT-005' LIMIT 1")
+                fb = c.fetchone()
+                if fb:
+                    if not excel_path or not os.path.exists(excel_path):
+                        excel_path = fb["excel_path"]
+                    if not items:
+                        c.execute("SELECT * FROM checklist_template_items WHERE template_id = ? ORDER BY excel_row ASC", (fb["id"],))
+                        items = [dict(r) for r in c.fetchall()]
+            conn.close()
+
+            if not excel_path or not os.path.exists(excel_path):
+                self.send_json_response({"detail": "원본 점검표 엑셀 파일을 찾을 수 없습니다."}, 404)
+                return
+
+            try:
+                 responses = json.loads(sess_dict.get("responses_json") or "{}")
+            except Exception:
+                responses = {}
+
+            # 원본 엑셀 양식을 그대로 로드하여 셀 스타일/병합/서식 100% 보존
+            wb = openpyxl.load_workbook(excel_path)
+            ws = wb["CheckList"] if "CheckList" in wb.sheetnames else wb.active
+
+            # 상단 심사 기본정보 기입 (병합 셀의 좌상단 셀에만 값을 넣어 양식 깨짐 방지)
+            ws["A4"].value = sess_dict.get("audit_no") or "YY-QA-XXX"
+            ws["E4"].value = sess_dict.get("audit_date") or ""
+            ws["I4"].value = sess_dict.get("auditor") or ""
+
+            purpose = sess_dict.get("audit_purpose") or "Schedule"
+            purpose_other = sess_dict.get("audit_purpose_other") or "                            "
+            ws["E6"].value = " ■ Schedule" if purpose == "Schedule" else " □ Schedule"
+            ws["G6"].value = " ■ Unscheduled" if purpose == "Unscheduled" else " □ Unscheduled"
+            ws["K6"].value = f"■ Others({purpose_other})" if purpose == "Others" else "□ Others(                            )"
+
+            ws["A9"].value = sess_dict.get("auditee_team") or sess_dict.get("station_name") or ""
+            ws["D9"].value = sess_dict.get("auditee_coordinator") or ""
+            ws["E9"].value = sess_dict.get("auditee_title") or ""
+            ws["I9"].value = sess_dict.get("auditee_phone") or ""
+            ws["A14"].value = sess_dict.get("remark") or ""
+
+            # 각 문항별 S(7열), U/S(8열), N/A(9열), N/O(10열), OBS(11열)에 선택 항목은 'Y', 나머지는 'N' 표기 + Comments(12열)
+            for it in items:
+                r = it.get("excel_row")
+                if not r or r < 16:
+                    continue
+                ans = responses.get(str(it["id"])) or responses.get(it["item_no"]) or responses.get(str(it.get("seq_no"))) or {}
+                res_val = ans.get("result") or ans.get("choice") or ""
+                comment_val = ans.get("comment", "")
+
+                ws.cell(r, 7).value = "Y" if res_val == "S" else "N"
+                ws.cell(r, 8).value = "Y" if res_val == "U/S" else "N"
+                ws.cell(r, 9).value = "Y" if res_val == "N/A" else "N"
+                ws.cell(r, 10).value = "N"
+                ws.cell(r, 11).value = "N"
+                ws.cell(r, 12).value = comment_val if comment_val else None
+
+            buf = io.BytesIO()
+            wb.save(buf)
+            excel_bytes = buf.getvalue()
+
+            rev_tag = f" ({sess_dict['tpl_rev']})" if sess_dict.get("tpl_rev") else ""
+            safe_station = re.sub(r'[\\/:*?"<>|]', '_', sess_dict.get("station_name") or "")
+            out_filename = f"({sess_dict['tpl_code']}) {safe_station} 품질심사 점검표{rev_tag}_{sess_dict.get('audit_date') or sess_dict['audit_year']}.xlsx"
+            encoded_fname = urllib.parse.quote(out_filename)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{encoded_fname}")
+            self.send_header("Content-Length", str(len(excel_bytes)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(excel_bytes)
+            return
+
+        elif path == "/api/plan/export":
+            plan_path = os.path.join(BASE_DIR, "2027년 정비부문 품질심사 계획표 (R.0).xlsx")
+            if not os.path.exists(plan_path):
+                alt_plan = os.path.join(CHECKLIST_DIR, "2027년 정비부문 품질심사 계획표 (R.0).xlsx")
+                if os.path.exists(alt_plan):
+                    plan_path = alt_plan
+            if not os.path.exists(plan_path):
+                self.send_json_response({"detail": "계획표 엑셀 파일을 찾을 수 없습니다."}, 404)
+                return
+            with open(plan_path, "rb") as f:
+                data_bytes = f.read()
+            encoded_fname = urllib.parse.quote("2027년 정비부문 품질심사 계획표 (R.0).xlsx")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{encoded_fname}")
+            self.send_header("Content-Length", str(len(data_bytes)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data_bytes)
+            return
+
         else:
             self.send_error(404, "Not Found")
 
@@ -1449,6 +2002,198 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
             self.send_json_response({"status": "success", "count": imported_count, "message": f"{imported_count}건의 지적/개선조치 사항이 일괄 등록되었습니다."})
+            return
+
+        # ── 품질심사 체크리스트 저장 / 엑셀 업로드 / 폴더 스캔 API ────────────
+        elif path == "/api/checklists/session/save":
+            session_id = data.get("id")
+            template_id = int(data["template_id"])
+            target_id = int(data["target_id"])
+            audit_year = int(data.get("audit_year", 2026))
+            audit_no = data.get("audit_no", "YY-QA-XXX").strip()
+            audit_date = data.get("audit_date", "").strip() or datetime.date.today().strftime("%Y-%m-%d")
+            auditor = data.get("auditor", "").strip()
+            audit_purpose = data.get("audit_purpose", "Schedule").strip()
+            audit_purpose_other = data.get("audit_purpose_other", "").strip()
+            auditee_team = data.get("auditee_team", "").strip()
+            auditee_coordinator = data.get("auditee_coordinator", "").strip()
+            auditee_title = data.get("auditee_title", "").strip()
+            auditee_phone = data.get("auditee_phone", "").strip()
+            remark = data.get("remark", "").strip()
+            status = data.get("status", "작성중").strip()
+            responses = data.get("responses", {})
+            responses_json = json.dumps(responses, ensure_ascii=False)
+            sync_findings = bool(data.get("sync_findings", status == "완료"))
+
+            conn = get_db_connection()
+            c = conn.cursor()
+
+            if session_id:
+                c.execute("""
+                    UPDATE checklist_sessions SET
+                        template_id = ?, target_id = ?, audit_year = ?,
+                        audit_no = ?, audit_date = ?, auditor = ?,
+                        audit_purpose = ?, audit_purpose_other = ?,
+                        auditee_team = ?, auditee_coordinator = ?, auditee_title = ?, auditee_phone = ?,
+                        remark = ?, status = ?, responses_json = ?,
+                        updated_at = datetime('now','localtime')
+                    WHERE id = ?
+                """, (
+                    template_id, target_id, audit_year,
+                    audit_no, audit_date, auditor,
+                    audit_purpose, audit_purpose_other,
+                    auditee_team, auditee_coordinator, auditee_title, auditee_phone,
+                    remark, status, responses_json, int(session_id)
+                ))
+                saved_id = int(session_id)
+            else:
+                c.execute("""
+                    INSERT INTO checklist_sessions (
+                        template_id, target_id, audit_year,
+                        audit_no, audit_date, auditor,
+                        audit_purpose, audit_purpose_other,
+                        auditee_team, auditee_coordinator, auditee_title, auditee_phone,
+                        remark, status, responses_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    template_id, target_id, audit_year,
+                    audit_no, audit_date, auditor,
+                    audit_purpose, audit_purpose_other,
+                    auditee_team, auditee_coordinator, auditee_title, auditee_phone,
+                    remark, status, responses_json
+                ))
+                saved_id = c.lastrowid
+
+            # U/S(부적합) 항목을 [심사 대상 분석] 지적사항(Finding) DB에 자동 연동
+            synced_findings_count = 0
+            if sync_findings:
+                # 심사완료 시 연간 심사 계획(audit_history) 상태도 '완료'로 자동 업데이트
+                if status == "완료":
+                    c.execute("""
+                        SELECT id FROM audit_history WHERE target_id = ? AND year = ?
+                    """, (target_id, audit_year))
+                    hist_row = c.fetchone()
+                    if hist_row:
+                        c.execute("""
+                            UPDATE audit_history
+                            SET status = '완료', scheduled_date = ?, auditor = ?
+                            WHERE id = ?
+                        """, (audit_date, auditor, hist_row["id"]))
+                    else:
+                        c.execute("""
+                            INSERT INTO audit_history (target_id, year, audit_type, status, scheduled_date, auditor, remarks)
+                            VALUES (?, ?, '직접', '완료', ?, ?, '품질심사 점검표 수행 완료')
+                        """, (target_id, audit_year, audit_date, auditor))
+
+                c.execute("SELECT * FROM checklist_template_items WHERE template_id = ?", (template_id,))
+                raw_items = [dict(r) for r in c.fetchall()]
+                if not raw_items:
+                    c.execute("SELECT id FROM checklist_templates WHERE code = 'TW-MNT-005' LIMIT 1")
+                    fb = c.fetchone()
+                    if fb:
+                        c.execute("SELECT * FROM checklist_template_items WHERE template_id = ?", (fb["id"],))
+                        raw_items = [dict(r) for r in c.fetchall()]
+                item_map = {}
+                for r in raw_items:
+                    item_map[str(r["id"])] = r
+                    if r.get("item_no"):
+                        item_map[str(r["item_no"])] = r
+                    if r.get("seq_no"):
+                        item_map[str(r["seq_no"])] = r
+
+                for item_key, ans in responses.items():
+                    if not isinstance(ans, dict):
+                        continue
+                    res_val = ans.get("result") or ans.get("choice") or ""
+                    if res_val != "U/S":
+                        continue
+                    it = item_map.get(str(item_key))
+                    if not it:
+                        continue
+                    item_no_str = it["item_no"]
+                    comment_txt = (ans.get("comment") or "").strip()
+                    finding_title = f"[점검표 {item_no_str}] {it['requirement'].splitlines()[0][:80]}"
+                    finding_detail = comment_txt if comment_txt else f"점검표 문항({item_no_str}) 부적합(U/S) 판정: {it['requirement']}"
+                    refs = [r for r in [it.get("internal_ref"), it.get("external_ref")] if r and r != "-"]
+                    reg_ref = " / ".join(refs)
+
+                    # 동일 대상·일자·문항번호 중복 등록 방지
+                    c.execute("""
+                        SELECT id FROM audit_findings
+                        WHERE target_id = ? AND audit_date = ? AND title LIKE ?
+                    """, (target_id, audit_date, f"[점검표 {item_no_str}]%"))
+                    existing_f = c.fetchone()
+                    if existing_f:
+                        c.execute("""
+                            UPDATE audit_findings
+                            SET finding_detail = ?, regulation_ref = ?, auditor = ?
+                            WHERE id = ?
+                        """, (finding_detail, reg_ref, auditor, existing_f["id"]))
+                    else:
+                        c.execute("""
+                            INSERT INTO audit_findings (
+                                target_id, audit_date, finding_type, category_tag,
+                                title, finding_detail, regulation_ref, action_status, auditor
+                            ) VALUES (?, ?, 'Finding', '체크리스트 부적합(U/S)', ?, ?, ?, '조치중', ?)
+                        """, (target_id, audit_date, finding_title, finding_detail, reg_ref, auditor))
+                    synced_findings_count += 1
+
+            conn.commit()
+            conn.close()
+            msg = "체크리스트가 저장되었습니다."
+            if sync_findings and synced_findings_count > 0:
+                msg += f" (부적합 U/S {synced_findings_count}건이 [심사 대상 분석] 지적사항에 자동 연동되었습니다.)"
+            self.send_json_response({
+                "status": "success",
+                "id": saved_id,
+                "synced_findings": synced_findings_count,
+                "message": msg
+            })
+            return
+
+        elif path == "/api/checklists/session/delete":
+            sid = int(data["id"])
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("DELETE FROM checklist_sessions WHERE id = ?", (sid,))
+            conn.commit()
+            conn.close()
+            self.send_json_response({"status": "success", "message": "체크리스트 작성 내역이 삭제되었습니다."})
+            return
+
+        elif path == "/api/checklists/upload_excel":
+            filename = os.path.basename(data.get("filename", "")).strip()
+            b64_content = data.get("content_base64", "")
+            override_code = data.get("code", "").strip() or None
+            override_cat = data.get("category", "").strip() or None
+            if not filename or not b64_content:
+                self.send_json_response({"detail": "업로드할 엑셀 파일명과 데이터가 필요합니다."}, 400)
+                return
+            save_path = os.path.join(CHECKLIST_DIR, filename)
+            try:
+                raw_bytes = base64.b64decode(b64_content)
+                with open(save_path, "wb") as f:
+                    f.write(raw_bytes)
+                parsed = parse_and_import_checklist_excel(save_path, override_code=override_code, override_category=override_cat)
+                if not parsed:
+                    self.send_json_response({"detail": "엑셀 파일에서 CheckList 시트(Requirement 컬럼)를 찾지 못했습니다. 표준 점검표 양식인지 확인해 주세요."}, 400)
+                    return
+                self.send_json_response({
+                    "status": "success",
+                    "template": parsed,
+                    "message": f"[{parsed['code']}] {parsed['title']} ({parsed['item_count']}개 문항) 점검표가 성공적으로 등록되었습니다!"
+                })
+            except Exception as e:
+                self.send_json_response({"detail": f"엑셀 파싱 중 오류가 발생했습니다: {str(e)}"}, 500)
+            return
+
+        elif path == "/api/checklists/rescan":
+            imported = sync_checklist_templates_from_excel()
+            self.send_json_response({
+                "status": "success",
+                "imported": imported,
+                "message": f"[품질심사 체크리스트] 폴더 스캔 완료: {len(imported)}개 엑셀 점검표가 동기화되었습니다."
+            })
             return
 
         else:

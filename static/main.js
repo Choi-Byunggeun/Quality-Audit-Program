@@ -442,6 +442,9 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (currentTab === "mypage") {
             pageTitle.textContent = "내 심사 일정 (마이페이지)";
             pageSubtitle.textContent = "본인에게 배정된 심사 일정과 자격 만료/보수교육 주기를 확인합니다.";
+        } else if (currentTab === "checklist") {
+            pageTitle.textContent = "품질심사 체크리스트 (설문형 점검표)";
+            pageSubtitle.textContent = "품질점검표를 설문조사 형식으로 체킹하고 사내 양식 엑셀(Export)로 다운로드합니다.";
         } else if (currentTab === "analysis") {
             pageTitle.textContent = "심사 대상 분석 (사전 심사 준비)";
             pageSubtitle.textContent = "과거 심사 이력, 지적 및 개선조치(Finding/CAR) 사항을 분석하고 차기 심사 착안사항을 준비합니다.";
@@ -476,6 +479,8 @@ document.addEventListener("DOMContentLoaded", () => {
             loadDashboardData();
         } else if (currentTab === "mypage") {
             loadMyPageData();
+        } else if (currentTab === "checklist") {
+            loadChecklistTab();
         } else if (currentTab === "analysis") {
             loadAnalysisTreeData();
         } else if (currentTab === "calendar") {
@@ -2993,7 +2998,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById('my-indirect-audit-count').innerHTML = `${indirectCount}<small>건</small>`;
 
         if (myAudits.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4" style="color:var(--text-secondary);">${selectedYear}년에 배정된 심사 일정이 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4" style="color:var(--text-secondary);">${selectedYear}년에 배정된 심사 일정이 없습니다.</td></tr>`;
             return;
         }
 
@@ -3010,7 +3015,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${audit.operation_status}</span></td>
                 <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}">${audit.status}</span></td>
                 <td><small style="color:var(--text-secondary);">${audit.remarks || '-'}</small></td>
+                <td style="text-align:center;">
+                    <button class="btn btn-primary btn-xs btn-jump-chk" style="padding:4px 8px; font-size:11px;" data-tid="${audit.target_id}">
+                        <i class="fa-solid fa-clipboard-check"></i> 점검표
+                    </button>
+                </td>
             `;
+            tr.querySelector('.btn-jump-chk').addEventListener('click', (e) => {
+                e.stopPropagation();
+                jumpToChecklist(audit.target_id, selectedYear);
+            });
             tbody.appendChild(tr);
         });
     }
@@ -3811,6 +3825,773 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
                 loadAnalysisTreeData();
                 loadTargetAnalysis(selectedAnalysisTargetId);
             }
+        });
+    }
+
+    // Detail Modal -> 체크리스트 바로가기 버튼 리스너
+    const btnGotoChecklistFromDetail = document.getElementById("btn-goto-checklist-from-detail");
+    if (btnGotoChecklistFromDetail) {
+        btnGotoChecklistFromDetail.addEventListener("click", () => {
+            const tid = parseInt(document.getElementById("detail-target-id").value);
+            const yr = document.getElementById("detail-year").value || selectedYear;
+            closeDetailModal();
+            jumpToChecklist(tid, yr);
+        });
+    }
+
+    // ========================================================
+    // 품질심사 체크리스트 (설문형 점검표) 전용 모듈
+    // ========================================================
+    let checklistAllTargets = [];
+    let checklistTemplates = [];
+    let currentChecklistSession = null;
+    let currentChecklistTemplate = null;
+    let currentChecklistItems = [];
+    let checklistResponses = {}; // { [itemId]: { result: "S"|"U/S"|"N/A", comment: "" } }
+    let selectedChecklistTargetId = null;
+
+    // Elements
+    const checklistTargetSelect = document.getElementById("checklist-target-select");
+    const checklistTemplateSelect = document.getElementById("checklist-template-select");
+    const btnOpenChecklistHistory = document.getElementById("btn-open-checklist-history");
+    const btnOpenTemplateUpload = document.getElementById("btn-open-template-upload");
+    const btnRescanTemplates = document.getElementById("btn-rescan-templates");
+    const btnLoadMyAssignedTarget = document.getElementById("btn-load-my-assigned-target");
+    const btnResetNewChecklist = document.getElementById("btn-reset-new-checklist");
+    const btnToggleChecklistMeta = document.getElementById("btn-toggle-checklist-meta");
+    const checklistMetaCard = document.getElementById("checklist-meta-card");
+    const btnSaveChecklistDraft = document.getElementById("btn-save-checklist-draft");
+    const btnCompleteChecklist = document.getElementById("btn-complete-checklist");
+    const btnExportChecklistExcel = document.getElementById("btn-export-checklist-excel");
+    const checklistSurveyContainer = document.getElementById("checklist-survey-container");
+    const modalChecklistHistory = document.getElementById("modal-checklist-history");
+    const btnCloseChecklistHistory = document.getElementById("btn-close-checklist-history");
+    const modalTemplateUpload = document.getElementById("modal-template-upload");
+    const btnCloseTemplateUpload = document.getElementById("btn-close-template-upload");
+    const btnCancelTemplateUpload = document.getElementById("btn-cancel-template-upload");
+    const templateUploadForm = document.getElementById("template-upload-form");
+
+    // 다른 탭/화면에서 특정 대상의 점검표로 바로 점프
+    window.jumpToChecklist = function(targetId, year) {
+        if (year) {
+            selectedYear = String(year);
+            if (globalYearSelect) globalYearSelect.value = selectedYear;
+            document.querySelectorAll(".current-year-label").forEach(el => el.textContent = selectedYear);
+        }
+        navItems.forEach(nav => nav.classList.remove("active"));
+        tabPanes.forEach(pane => pane.classList.remove("active"));
+
+        const navChecklist = document.querySelector('[data-tab="checklist"]');
+        if (navChecklist) navChecklist.classList.add("active");
+        const tabChecklist = document.getElementById("tab-checklist");
+        if (tabChecklist) tabChecklist.classList.add("active");
+
+        currentTab = "checklist";
+        updatePageTitles();
+        loadChecklistTab(targetId, year);
+    };
+
+    // 체크리스트 탭 진입 로더
+    async function loadChecklistTab(targetIdToSelect = null, yearToSelect = null) {
+        const yr = yearToSelect || selectedYear || 2026;
+
+        // 1. 전체 심사 대상 목록 로드 (7대 카테고리 기준 그룹핑)
+        if (checklistAllTargets.length === 0) {
+            const targets = await apiFetch("/api/targets");
+            if (targets) checklistAllTargets = targets;
+        }
+
+        // 2. 템플릿 목록 로드
+        await loadChecklistTemplateOptions();
+
+        // 3. 점검 대상 드롭다운 구성
+        populateChecklistTargetDropdown();
+
+        // 4. 선택할 대상 결정 (파라미터 > 기존 선택 > 본인 배정 일정 > 첫번째 대상)
+        let tid = targetIdToSelect;
+        if (!tid) {
+            if (selectedChecklistTargetId) {
+                tid = selectedChecklistTargetId;
+            } else if (currentUser && currentUser.name) {
+                // 본인 배정 일정 중 하나 찾기
+                const scheds = await apiFetch(`/api/multi_year_schedule?start_year=${yr}&end_year=${yr}`);
+                if (scheds) {
+                    const myTarget = scheds.find(t => {
+                        const s = t.schedule && t.schedule[parseInt(yr)];
+                        return s && s.auditor && (s.auditor.includes(currentUser.name) || (currentUser.employee_id && s.auditor.includes(currentUser.employee_id)));
+                    });
+                    if (myTarget) tid = myTarget.id;
+                }
+            }
+        }
+
+        if (!tid && checklistAllTargets.length > 0) {
+            // 정비통제 우선 또는 첫번째 운항 대상
+            const defaultTarget = checklistAllTargets.find(t => t.station_name === "정비통제") || checklistAllTargets.find(t => t.operation_status === "운항") || checklistAllTargets[0];
+            if (defaultTarget) tid = defaultTarget.id;
+        }
+
+        if (tid) {
+            selectedChecklistTargetId = tid;
+            if (checklistTargetSelect) checklistTargetSelect.value = tid;
+            await loadChecklistSessionData(tid, yr);
+        }
+
+        // 5. 작성 이력 카운트 뱃지 갱신
+        updateChecklistHistoryBadge();
+    }
+
+    // 7대 분야별 대상 드롭다운 채우기
+    function populateChecklistTargetDropdown() {
+        if (!checklistTargetSelect) return;
+        const currentVal = checklistTargetSelect.value;
+        checklistTargetSelect.innerHTML = '<option value="" disabled selected>점검 대상을 선택하세요</option>';
+
+        const catGroups = {
+            "내부 부서": [],
+            "국내운항지점": [],
+            "해외운항지점": [],
+            "완전위탁업체": [],
+            "엔진정비업체": [],
+            "중정비업체": [],
+            "국내업체": []
+        };
+
+        checklistAllTargets.forEach(t => {
+            const cat = t.category || "기타";
+            if (!catGroups[cat]) catGroups[cat] = [];
+            catGroups[cat].push(t);
+        });
+
+        for (const [catName, targets] of Object.entries(catGroups)) {
+            if (targets.length === 0) continue;
+            const optgroup = document.createElement("optgroup");
+            optgroup.label = `[${catName}] (${targets.length}개소)`;
+            targets.forEach(t => {
+                const opt = document.createElement("option");
+                opt.value = t.id;
+                const opTag = t.operation_status === "비운항" ? " [비운항]" : "";
+                opt.textContent = `${t.station_name}${opTag}`;
+                optgroup.appendChild(opt);
+            });
+            checklistTargetSelect.appendChild(optgroup);
+        }
+
+        if (currentVal) checklistTargetSelect.value = currentVal;
+    }
+
+    // 템플릿 드롭다운 채우기
+    async function loadChecklistTemplateOptions() {
+        if (!checklistTemplateSelect) return;
+        const templates = await apiFetch("/api/checklists/templates");
+        if (!templates) return;
+        checklistTemplates = templates;
+
+        const currentVal = checklistTemplateSelect.value;
+        checklistTemplateSelect.innerHTML = "";
+
+        templates.forEach(tpl => {
+            const opt = document.createElement("option");
+            opt.value = tpl.code;
+            const revStr = tpl.revision ? ` (${tpl.revision})` : "";
+            const itemsStr = tpl.item_count ? ` [${tpl.item_count}문항]` : " [준비중]";
+            opt.textContent = `[${tpl.code}] ${tpl.title}${revStr}${itemsStr}`;
+            checklistTemplateSelect.appendChild(opt);
+        });
+
+        if (currentVal && templates.some(t => t.code === currentVal)) {
+            checklistTemplateSelect.value = currentVal;
+        }
+    }
+
+    // 세션 및 문항 데이터 로드
+    async function loadChecklistSessionData(targetId, year, reqTplCode = null, sessionId = null) {
+        if (!checklistSurveyContainer) return;
+        checklistSurveyContainer.innerHTML = `
+            <div class="survey-loading-placeholder">
+                <i class="fa-solid fa-spinner fa-spin fa-2x"></i>
+                <p>품질점검표를 로딩하고 있습니다...</p>
+            </div>
+        `;
+
+        let url = `/api/checklists/session/load?target_id=${targetId}&year=${year}`;
+        if (reqTplCode) url += `&template_code=${encodeURIComponent(reqTplCode)}`;
+        if (sessionId) url += `&session_id=${sessionId}`;
+
+        const data = await apiFetch(url);
+        if (!data || !data.target) {
+            checklistSurveyContainer.innerHTML = `
+                <div class="survey-loading-placeholder">
+                    <i class="fa-solid fa-triangle-exclamation fa-2x" style="color:#ef4444;"></i>
+                    <p>점검표 정보를 불러오지 못했습니다. 다시 시도해 주세요.</p>
+                </div>
+            `;
+            return;
+        }
+
+        currentChecklistSession = data.session || {};
+        currentChecklistTemplate = data.template || {};
+        currentChecklistItems = data.items || [];
+        checklistResponses = currentChecklistSession.responses || {};
+
+        // 템플릿 드롭다운 동기화
+        if (checklistTemplateSelect && currentChecklistTemplate.code) {
+            checklistTemplateSelect.value = currentChecklistTemplate.code;
+        }
+
+        // 상단 메타데이터 카드 채우기
+        const sess = currentChecklistSession;
+        const target = data.target;
+
+        document.getElementById("meta-audit-no").value = sess.audit_no || "26-QA-XXX";
+        document.getElementById("meta-audit-date").value = sess.audit_date || "";
+        document.getElementById("meta-auditor").value = sess.auditor || (currentUser ? currentUser.name : "");
+
+        const purpose = sess.audit_purpose || "Schedule";
+        document.querySelectorAll('input[name="meta-purpose"]').forEach(r => {
+            r.checked = (r.value === purpose);
+        });
+
+        document.getElementById("meta-auditee-team").value = sess.auditee_team || target.station_name || "";
+        document.getElementById("meta-auditee-coordinator").value = sess.auditee_coordinator || "";
+        document.getElementById("meta-auditee-title").value = sess.auditee_title || "";
+        document.getElementById("meta-auditee-phone").value = sess.auditee_phone || "";
+        document.getElementById("meta-remark").value = sess.remark || "";
+
+        // 메타 서머리 칩 갱신
+        updateMetaSummaryChip(sess.audit_no, target.station_name, purpose);
+
+        // 폴백 양식 사용 시 안내 배너 표시
+        const fallbackBanner = document.getElementById("checklist-fallback-notice");
+        const fallbackMsg = document.getElementById("checklist-fallback-msg");
+        if (data.fallback_used && currentChecklistTemplate.fallback_from_code) {
+            fallbackMsg.textContent = `'${target.station_name}' 전용 [${currentChecklistTemplate.code}] 양식 파일이 준비 중이어서 표준 [${currentChecklistTemplate.fallback_from_code}] 문항(${currentChecklistItems.length}문항)이 로드되었습니다. 체킹 및 임시저장이 가능합니다.`;
+            fallbackBanner.style.display = "flex";
+        } else {
+            fallbackBanner.style.display = "none";
+        }
+
+        // Sticky Control Bar 갱신
+        document.getElementById("sticky-template-badge").textContent = currentChecklistTemplate.code || "TW-MNT";
+        document.getElementById("sticky-revision-badge").textContent = currentChecklistTemplate.revision || "R.0";
+        document.getElementById("sticky-target-name").textContent = target.station_name;
+
+        const statusBadge = document.getElementById("sticky-session-status");
+        const isDone = (sess.status === "완료");
+        statusBadge.textContent = sess.status || "작성중";
+        statusBadge.className = `badge ${isDone ? "badge-green" : "badge-blue"}`;
+
+        // 설문 문항 렌더링
+        renderSurveyItems();
+
+        // 진행률 바 업데이트
+        updateSurveyProgress();
+    }
+
+    function updateMetaSummaryChip(auditNo, stationName, purpose) {
+        const chip = document.getElementById("checklist-meta-summary-chip");
+        if (chip) {
+            chip.textContent = `${auditNo || "YY-QA-XXX"} | ${stationName || ""} | ${purpose === "Schedule" ? "정기심사" : "특별심사"}`;
+        }
+    }
+
+    // 설문 문항 카드 렌더링
+    function renderSurveyItems() {
+        if (!checklistSurveyContainer) return;
+        checklistSurveyContainer.innerHTML = "";
+
+        if (currentChecklistItems.length === 0) {
+            checklistSurveyContainer.innerHTML = `
+                <div class="survey-loading-placeholder">
+                    <i class="fa-solid fa-file-circle-question fa-2x" style="color:var(--text-secondary);"></i>
+                    <p>등록된 점검표 문항이 없습니다. 상단 [점검표 양식 업로드] 버튼을 통해 엑셀을 등록해 주세요.</p>
+                </div>
+            `;
+            return;
+        }
+
+        let currentSection = null;
+
+        currentChecklistItems.forEach(item => {
+            // 섹션 헤더 (섹션이 변경될 때 구분선 출력)
+            const sec = (item.section_no || "").trim();
+            if (sec && sec !== currentSection) {
+                currentSection = sec;
+                const secHeader = document.createElement("div");
+                secHeader.className = "survey-section-header";
+                secHeader.innerHTML = `
+                    <i class="fa-solid fa-list-ol" style="color:var(--accent-blue);"></i>
+                    <span class="survey-section-title">섹션 ${sec}</span>
+                `;
+                checklistSurveyContainer.appendChild(secHeader);
+            }
+
+            // 기존 답변 상태 가져오기
+            const ans = checklistResponses[String(item.id)] || checklistResponses[item.item_no] || {};
+            const currResult = ans.result || "";
+            const currComment = ans.comment || "";
+
+            let cardStateClass = "";
+            if (currResult === "S") cardStateClass = "state-s";
+            else if (currResult === "U/S") cardStateClass = "state-us";
+            else if (currResult === "N/A") cardStateClass = "state-na";
+
+            const card = document.createElement("div");
+            card.className = `survey-card ${cardStateClass}`;
+            card.id = `survey-card-${item.id}`;
+
+            let extRefHtml = item.external_ref && item.external_ref !== "-" ? `<span class="badge-ref-ext"><i class="fa-solid fa-scale-balanced"></i> 대외: ${item.external_ref}</span>` : "";
+            let intRefHtml = item.internal_ref && item.internal_ref !== "-" ? `<span class="badge-ref-int"><i class="fa-solid fa-book"></i> 사내: ${item.internal_ref}</span>` : "";
+
+            card.innerHTML = `
+                <div class="survey-card-header">
+                    <div class="survey-item-badges">
+                        <span class="badge-item-no">문항 ${item.item_no}</span>
+                        <span class="badge badge-gray" style="font-size:11px;">#${item.seq_no}</span>
+                        ${intRefHtml}
+                        ${extRefHtml}
+                    </div>
+                </div>
+
+                <div class="survey-requirement-box">${item.requirement}</div>
+
+                <div class="survey-choice-group">
+                    <button type="button" class="btn-survey-choice choice-s ${currResult === 'S' ? 'active' : ''}" data-item-id="${item.id}" data-choice="S">
+                        <i class="fa-solid fa-circle-check"></i> S (적합)
+                    </button>
+                    <button type="button" class="btn-survey-choice choice-us ${currResult === 'U/S' ? 'active' : ''}" data-item-id="${item.id}" data-choice="U/S">
+                        <i class="fa-solid fa-triangle-exclamation"></i> U/S (부적합)
+                    </button>
+                    <button type="button" class="btn-survey-choice choice-na ${currResult === 'N/A' ? 'active' : ''}" data-item-id="${item.id}" data-choice="N/A">
+                        <i class="fa-solid fa-circle-minus"></i> N/A (해당없음)
+                    </button>
+                </div>
+
+                <div class="survey-comment-wrap">
+                    <label for="comment-item-${item.id}"><i class="fa-regular fa-comment-dots"></i> 심사원 의견 및 확인 사항 (Comments)</label>
+                    <textarea class="survey-comment-input" id="comment-item-${item.id}" rows="2" placeholder="점검 의견, 근거 자료 및 세부 내용을 기술하세요...">${currComment}</textarea>
+                    <div class="survey-us-alert" id="us-alert-${item.id}" style="${currResult === 'U/S' ? 'display:flex;' : 'display:none;'}">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span><strong>부적합(U/S) 항목:</strong> 심사완료 시 [심사 대상 분석] 지적사항(Finding)으로 자동 연동 등록됩니다.</span>
+                    </div>
+                </div>
+            `;
+
+            // 3버튼 클릭 이벤트 바인딩
+            card.querySelectorAll(".btn-survey-choice").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const choice = btn.getAttribute("data-choice");
+                    selectSurveyChoice(item.id, choice);
+                });
+            });
+
+            // 코멘트 입력 시 실시간 세션 메모리에 반영
+            const commentInput = card.querySelector(`#comment-item-${item.id}`);
+            commentInput.addEventListener("input", (e) => {
+                const text = e.target.value;
+                if (!checklistResponses[String(item.id)]) {
+                    checklistResponses[String(item.id)] = {};
+                }
+                checklistResponses[String(item.id)].comment = text;
+            });
+
+            checklistSurveyContainer.appendChild(card);
+        });
+    }
+
+    // 설문 답변 선택 처리
+    window.selectSurveyChoice = function(itemId, choice) {
+        const itemKey = String(itemId);
+        if (!checklistResponses[itemKey]) {
+            checklistResponses[itemKey] = {};
+        }
+
+        // 이미 선택된 항목을 다시 누르면 취소(선택 해제)할 수 있도록 토글 지원
+        if (checklistResponses[itemKey].result === choice) {
+            checklistResponses[itemKey].result = "";
+        } else {
+            checklistResponses[itemKey].result = choice;
+        }
+
+        const newResult = checklistResponses[itemKey].result;
+        const card = document.getElementById(`survey-card-${itemId}`);
+        if (card) {
+            // 버튼 상태 갱신
+            card.querySelectorAll(".btn-survey-choice").forEach(btn => {
+                const btnChoice = btn.getAttribute("data-choice");
+                btn.classList.toggle("active", btnChoice === newResult);
+            });
+
+            // 카드 좌측 테두리 색상 갱신
+            card.classList.remove("state-s", "state-us", "state-na");
+            if (newResult === "S") card.classList.add("state-s");
+            else if (newResult === "U/S") card.classList.add("state-us");
+            else if (newResult === "N/A") card.classList.add("state-na");
+
+            // U/S 경고 박스 표시 여부
+            const usAlert = document.getElementById(`us-alert-${itemId}`);
+            if (usAlert) {
+                usAlert.style.display = (newResult === "U/S") ? "flex" : "none";
+            }
+        }
+
+        // 실시간 진행률 및 통계 카운트 갱신
+        updateSurveyProgress();
+    };
+
+    // 실시간 진행률 바 및 통계 지표 계산
+    function updateSurveyProgress() {
+        const total = currentChecklistItems.length;
+        let sCount = 0;
+        let usCount = 0;
+        let naCount = 0;
+
+        currentChecklistItems.forEach(item => {
+            const ans = checklistResponses[String(item.id)] || checklistResponses[item.item_no];
+            if (ans && ans.result) {
+                if (ans.result === "S") sCount++;
+                else if (ans.result === "U/S") usCount++;
+                else if (ans.result === "N/A") naCount++;
+            }
+        });
+
+        const answered = sCount + usCount + naCount;
+        const unanswered = Math.max(0, total - answered);
+        const pct = total > 0 ? Math.round((answered / total) * 100) : 0;
+
+        if (document.getElementById("stat-total-items")) document.getElementById("stat-total-items").textContent = total;
+        if (document.getElementById("stat-s-count")) document.getElementById("stat-s-count").textContent = sCount;
+        if (document.getElementById("stat-us-count")) document.getElementById("stat-us-count").textContent = usCount;
+        if (document.getElementById("stat-na-count")) document.getElementById("stat-na-count").textContent = naCount;
+        if (document.getElementById("stat-unanswered-count")) document.getElementById("stat-unanswered-count").textContent = unanswered;
+
+        const barFill = document.getElementById("survey-progress-bar-fill");
+        if (barFill) {
+            barFill.style.width = `${pct}%`;
+        }
+    }
+
+    // 체크리스트 저장 (isComplete = true: 심사완료 처리)
+    async function saveChecklist(isComplete = false) {
+        if (!selectedChecklistTargetId || !currentChecklistTemplate || !currentChecklistTemplate.id) {
+            showToast("선택된 심사 대상 또는 점검표 양식이 없습니다.", "error");
+            return false;
+        }
+
+        const total = currentChecklistItems.length;
+        let answered = 0;
+        currentChecklistItems.forEach(item => {
+            const ans = checklistResponses[String(item.id)] || checklistResponses[item.item_no];
+            if (ans && ans.result) answered++;
+        });
+
+        if (isComplete) {
+            const unanswered = total - answered;
+            let confirmMsg = "품질심사를 '완료' 처리하시겠습니까?\n\n";
+            confirmMsg += "▸ 해당 대상의 연간 심사 진행상태가 '완료'로 자동 반영됩니다.\n";
+            confirmMsg += "▸ 부적합(U/S) 항목은 [심사 대상 분석] 지적사항(Finding)으로 자동 연동됩니다.\n";
+            if (unanswered > 0) {
+                confirmMsg += `\n⚠️ 아직 답변하지 않은 문항이 ${unanswered}건 남아있습니다. 계속 완료하시겠습니까?`;
+            }
+            if (!confirm(confirmMsg)) {
+                return false;
+            }
+        }
+
+        // 메타데이터 수집
+        const auditNo = document.getElementById("meta-audit-no").value.trim() || "26-QA-XXX";
+        const auditDate = document.getElementById("meta-audit-date").value.trim() || new Date().toISOString().slice(0, 10);
+        const auditor = document.getElementById("meta-auditor").value.trim();
+
+        let purpose = "Schedule";
+        document.querySelectorAll('input[name="meta-purpose"]').forEach(r => {
+            if (r.checked) purpose = r.value;
+        });
+
+        const payload = {
+            id: currentChecklistSession && currentChecklistSession.id ? currentChecklistSession.id : null,
+            template_id: currentChecklistTemplate.id,
+            target_id: selectedChecklistTargetId,
+            audit_year: parseInt(selectedYear || 2026),
+            audit_no: auditNo,
+            audit_date: auditDate,
+            auditor: auditor,
+            audit_purpose: purpose,
+            audit_purpose_other: "",
+            auditee_team: document.getElementById("meta-auditee-team").value.trim(),
+            auditee_coordinator: document.getElementById("meta-auditee-coordinator").value.trim(),
+            auditee_title: document.getElementById("meta-auditee-title").value.trim(),
+            auditee_phone: document.getElementById("meta-auditee-phone").value.trim(),
+            remark: document.getElementById("meta-remark").value.trim(),
+            status: isComplete ? "완료" : "작성중",
+            responses: checklistResponses,
+            sync_findings: isComplete
+        };
+
+        const res = await apiFetch("/api/checklists/session/save", {
+            method: "POST",
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.status === "success") {
+            if (!currentChecklistSession) currentChecklistSession = {};
+            currentChecklistSession.id = res.id;
+            currentChecklistSession.status = isComplete ? "완료" : "작성중";
+
+            const statusBadge = document.getElementById("sticky-session-status");
+            if (statusBadge) {
+                statusBadge.textContent = isComplete ? "완료" : "작성중";
+                statusBadge.className = `badge ${isComplete ? "badge-green" : "badge-blue"}`;
+            }
+
+            showToast(res.message, "success");
+            updateChecklistHistoryBadge();
+            return true;
+        } else {
+            showToast("체크리스트 저장에 실패했습니다.", "error");
+            return false;
+        }
+    }
+
+    // 원본 서식 보존 엑셀 내보내기 (Export)
+    async function exportChecklistExcel() {
+        if (!currentChecklistSession || !currentChecklistSession.id) {
+            const saved = await saveChecklist(false);
+            if (!saved) return;
+        }
+        showToast("엑셀(CheckList) 다운로드를 시작합니다...", "info");
+        window.location.href = `/api/checklists/session/${currentChecklistSession.id}/export`;
+    }
+
+    // 작성 이력 모달 로더
+    async function openChecklistHistoryModal() {
+        if (!modalChecklistHistory) return;
+        modalChecklistHistory.classList.add("active");
+
+        const tbody = document.getElementById("checklist-history-table-body");
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:30px;">작성 이력을 불러오는 중입니다...</td></tr>`;
+
+        const sessions = await apiFetch("/api/checklists/sessions");
+        if (!sessions || sessions.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-secondary); padding:40px;">작성된 점검표 이력이 없습니다.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = sessions.map((s, idx) => {
+            const isDone = (s.status === "완료");
+            const statusHtml = `<span class="badge ${isDone ? 'badge-green' : 'badge-blue'}">${s.status || '작성중'}</span>`;
+            const statsHtml = `<span style="color:#10b981; font-weight:700;">S: ${s.s_count || 0}</span> / <span style="color:#ef4444; font-weight:700;">U/S: ${s.us_count || 0}</span> / <span style="color:#94a3b8;">N/A: ${s.na_count || 0}</span>`;
+
+            return `
+                <tr>
+                    <td>${idx + 1}</td>
+                    <td><code>${s.audit_no || '-'}</code></td>
+                    <td style="font-weight:700;">${s.station_name}</td>
+                    <td><span class="badge badge-accent" style="font-size:10.5px;">${s.template_code}</span> ${s.template_title || ''}</td>
+                    <td>${s.audit_date || s.audit_year}</td>
+                    <td>${s.auditor || '-'}</td>
+                    <td>${statusHtml}</td>
+                    <td>${statsHtml}</td>
+                    <td style="text-align:center; white-space:nowrap;">
+                        <button class="btn btn-primary btn-xs" onclick="resumeChecklistSession(${s.id}, ${s.target_id}, ${s.audit_year})" style="margin-right:4px;">
+                            <i class="fa-solid fa-pen-to-square"></i> 열람/수정
+                        </button>
+                        <a href="/api/checklists/session/${s.id}/export" class="btn btn-success btn-xs" style="margin-right:4px; text-decoration:none;">
+                            <i class="fa-solid fa-file-excel"></i> 엑셀
+                        </a>
+                        <button class="btn btn-xs" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);" onclick="deleteChecklistSession(${s.id}, '${s.station_name}')">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    window.resumeChecklistSession = function(sessionId, targetId, year) {
+        if (modalChecklistHistory) modalChecklistHistory.classList.remove("active");
+        if (year) {
+            selectedYear = String(year);
+            if (globalYearSelect) globalYearSelect.value = selectedYear;
+        }
+        selectedChecklistTargetId = targetId;
+        if (checklistTargetSelect) checklistTargetSelect.value = targetId;
+        loadChecklistSessionData(targetId, year, null, sessionId);
+    };
+
+    window.deleteChecklistSession = async function(sessionId, stationName) {
+        if (!confirm(`'${stationName}'의 해당 점검표 작성 내역을 삭제하시겠습니까?`)) return;
+        const res = await apiFetch("/api/checklists/session/delete", {
+            method: "POST",
+            body: JSON.stringify({ id: sessionId })
+        });
+        if (res && res.status === "success") {
+            showToast("점검표가 삭제되었습니다.", "info");
+            openChecklistHistoryModal();
+            updateChecklistHistoryBadge();
+        }
+    };
+
+    async function updateChecklistHistoryBadge() {
+        const badge = document.getElementById("checklist-history-count-badge");
+        if (!badge) return;
+        const sessions = await apiFetch("/api/checklists/sessions");
+        if (sessions) {
+            badge.textContent = sessions.length;
+        }
+    }
+
+    // 점검표 엑셀 업로드 모달 열기
+    function openTemplateUploadModal() {
+        if (templateUploadForm) templateUploadForm.reset();
+        if (modalTemplateUpload) modalTemplateUpload.classList.add("active");
+    }
+
+    // 이벤트 리스너 바인딩
+    if (checklistTargetSelect) {
+        checklistTargetSelect.addEventListener("change", (e) => {
+            selectedChecklistTargetId = parseInt(e.target.value);
+            loadChecklistSessionData(selectedChecklistTargetId, selectedYear);
+        });
+    }
+
+    if (checklistTemplateSelect) {
+        checklistTemplateSelect.addEventListener("change", (e) => {
+            if (selectedChecklistTargetId) {
+                loadChecklistSessionData(selectedChecklistTargetId, selectedYear, e.target.value);
+            }
+        });
+    }
+
+    if (btnToggleChecklistMeta) {
+        btnToggleChecklistMeta.addEventListener("click", () => {
+            if (checklistMetaCard) checklistMetaCard.classList.toggle("open");
+        });
+    }
+
+    if (btnSaveChecklistDraft) {
+        btnSaveChecklistDraft.addEventListener("click", () => saveChecklist(false));
+    }
+
+    if (btnCompleteChecklist) {
+        btnCompleteChecklist.addEventListener("click", () => saveChecklist(true));
+    }
+
+    if (btnExportChecklistExcel) {
+        btnExportChecklistExcel.addEventListener("click", exportChecklistExcel);
+    }
+
+    if (btnOpenChecklistHistory) {
+        btnOpenChecklistHistory.addEventListener("click", openChecklistHistoryModal);
+    }
+    if (btnCloseChecklistHistory) {
+        btnCloseChecklistHistory.addEventListener("click", () => modalChecklistHistory.classList.remove("active"));
+    }
+    if (modalChecklistHistory) {
+        modalChecklistHistory.addEventListener("click", (e) => {
+            if (e.target === modalChecklistHistory) modalChecklistHistory.classList.remove("active");
+        });
+    }
+
+    if (btnOpenTemplateUpload) {
+        btnOpenTemplateUpload.addEventListener("click", openTemplateUploadModal);
+    }
+    if (btnCloseTemplateUpload) {
+        btnCloseTemplateUpload.addEventListener("click", () => modalTemplateUpload.classList.remove("active"));
+    }
+    if (btnCancelTemplateUpload) {
+        btnCancelTemplateUpload.addEventListener("click", () => modalTemplateUpload.classList.remove("active"));
+    }
+    if (modalTemplateUpload) {
+        modalTemplateUpload.addEventListener("click", (e) => {
+            if (e.target === modalTemplateUpload) modalTemplateUpload.classList.remove("active");
+        });
+    }
+
+    if (btnRescanTemplates) {
+        btnRescanTemplates.addEventListener("click", async () => {
+            btnRescanTemplates.disabled = true;
+            btnRescanTemplates.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 스캔 중...`;
+            const res = await apiFetch("/api/checklists/rescan", { method: "POST", body: "{}" });
+            btnRescanTemplates.disabled = false;
+            btnRescanTemplates.innerHTML = `<i class="fa-solid fa-rotate"></i> 양식 폴더 스캔`;
+            if (res && res.status === "success") {
+                showToast(res.message, "success");
+                loadChecklistTemplateOptions();
+            }
+        });
+    }
+
+    if (btnLoadMyAssignedTarget) {
+        btnLoadMyAssignedTarget.addEventListener("click", async () => {
+            if (!currentUser || !currentUser.name) {
+                showToast("로그인 후 이용할 수 있는 기능입니다.", "info");
+                return;
+            }
+            const yr = selectedYear || 2026;
+            const scheds = await apiFetch(`/api/multi_year_schedule?start_year=${yr}&end_year=${yr}`);
+            if (!scheds) return;
+            const myTarget = scheds.find(t => {
+                const s = t.schedule && t.schedule[parseInt(yr)];
+                return s && s.auditor && (s.auditor.includes(currentUser.name) || (currentUser.employee_id && s.auditor.includes(currentUser.employee_id)));
+            });
+            if (myTarget) {
+                showToast(`내 배정 일정인 '${myTarget.station_name}'으로 이동합니다.`, "success");
+                jumpToChecklist(myTarget.id, yr);
+            } else {
+                showToast(`${yr}년에 배정된 본인 심사 일정을 찾지 못했습니다.`, "warning");
+            }
+        });
+    }
+
+    if (btnResetNewChecklist) {
+        btnResetNewChecklist.addEventListener("click", () => {
+            if (confirm("현재 점검표를 신규 작성 모드로 초기화하시겠습니까?")) {
+                checklistResponses = {};
+                if (currentChecklistSession) currentChecklistSession.id = null;
+                renderSurveyItems();
+                updateSurveyProgress();
+                showToast("새 점검표 작성을 시작합니다.", "info");
+            }
+        });
+    }
+
+    // 엑셀 점검표 파일 업로드 처리
+    if (templateUploadForm) {
+        templateUploadForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById("template-file-input");
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const code = document.getElementById("upload-template-code").value.trim();
+            const category = document.getElementById("upload-template-category").value;
+
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                const base64Data = evt.target.result.split(",")[1];
+                const res = await apiFetch("/api/checklists/upload_excel", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        filename: file.name,
+                        content_base64: base64Data,
+                        code: code,
+                        category: category
+                    })
+                });
+
+                if (res && res.status === "success") {
+                    showToast(res.message, "success");
+                    modalTemplateUpload.classList.remove("active");
+                    await loadChecklistTemplateOptions();
+                    if (selectedChecklistTargetId) {
+                        loadChecklistSessionData(selectedChecklistTargetId, selectedYear, res.template.code);
+                    }
+                } else {
+                    showToast(res && res.detail ? res.detail : "업로드 중 오류가 발생했습니다.", "error");
+                }
+            };
+            reader.readAsDataURL(file);
         });
     }
 
