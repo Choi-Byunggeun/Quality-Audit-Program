@@ -363,7 +363,7 @@
                         <div id="year-view-timeline" style="margin-top:16px;"></div>
                     </div>
 
-                    <!-- ② 6대 카테고리 필터 탭 -->
+                    <!-- ② 7대 카테고리 필터 탭 (Master 엑셀 A열 기준) -->
                     <div class="cat-filter-wrap">
                         <div class="cat-filter-label">
                             <i class="fa-solid fa-tags"></i> 심사 분야 카테고리 필터
@@ -375,33 +375,38 @@
                             </button>
                             <button class="cat-tab-btn" data-cat="cat1">
                                 <span style="width:8px;height:8px;border-radius:50%;background:var(--cat1-color);display:inline-block;"></span>
-                                국내 주재정비
+                                해외운항지점
                                 <span class="cat-count-badge" id="cat-count-cat1">0</span>
                             </button>
                             <button class="cat-tab-btn" data-cat="cat2">
                                 <span style="width:8px;height:8px;border-radius:50%;background:var(--cat2-color);display:inline-block;"></span>
-                                해외 주재정비
+                                완전위탁업체
                                 <span class="cat-count-badge" id="cat-count-cat2">0</span>
                             </button>
                             <button class="cat-tab-btn" data-cat="cat3">
                                 <span style="width:8px;height:8px;border-radius:50%;background:var(--cat3-color);display:inline-block;"></span>
-                                국내 운항정비 위탁
+                                엔진정비업체
                                 <span class="cat-count-badge" id="cat-count-cat3">0</span>
                             </button>
                             <button class="cat-tab-btn" data-cat="cat4">
                                 <span style="width:8px;height:8px;border-radius:50%;background:var(--cat4-color);display:inline-block;"></span>
-                                해외 운항정비 위탁
+                                중정비업체
                                 <span class="cat-count-badge" id="cat-count-cat4">0</span>
                             </button>
                             <button class="cat-tab-btn" data-cat="cat5">
                                 <span style="width:8px;height:8px;border-radius:50%;background:var(--cat5-color);display:inline-block;"></span>
-                                항공기 중정비 위탁
+                                국내업체
                                 <span class="cat-count-badge" id="cat-count-cat5">0</span>
                             </button>
                             <button class="cat-tab-btn" data-cat="cat6">
                                 <span style="width:8px;height:8px;border-radius:50%;background:var(--cat6-color);display:inline-block;"></span>
-                                엔진 중정비 위탁
+                                내부 부서
                                 <span class="cat-count-badge" id="cat-count-cat6">0</span>
+                            </button>
+                            <button class="cat-tab-btn" data-cat="cat7">
+                                <span style="width:8px;height:8px;border-radius:50%;background:var(--cat7-color);display:inline-block;"></span>
+                                국내운항지점
+                                <span class="cat-count-badge" id="cat-count-cat7">0</span>
                             </button>
                         </div>
 
@@ -566,7 +571,7 @@
                         <div class="analysis-empty-state" id="analysis-empty-state">
                             <div class="empty-icon"><i class="fa-solid fa-plane-circle-exclamation"></i></div>
                             <h3>심사 대상을 선택해 주세요</h3>
-                            <p>좌측 5개 폴더(내부심사, 운항정비 지점, 운항정비 위탁, 중정비 위탁, 정비 협력업체)에서<br>사전 분석할 업체를 클릭하시면 과거 심사 지적사항 및 중점 착안사항이 표시됩니다.</p>
+                            <p>좌측 7개 폴더(해외운항지점, 완전위탁업체, 엔진정비업체, 중정비업체, 국내업체, 내부 부서, 국내운항지점)에서<br>사전 분석할 대상을 클릭하시면 과거 심사 지적사항 및 중점 착안사항이 표시됩니다.</p>
                         </div>
 
                         <!-- Active Target Content (Hidden initially) -->
@@ -760,13 +765,15 @@
                         </div>
                         <div style="display:flex; align-items:center; gap:6px;">
                             <label for="manage-filter-category" style="font-size:12px; color:var(--text-secondary);"><i class="fa-solid fa-tags"></i> 분야:</label>
-                            <select id="manage-filter-category" class="select-field" style="padding:6px 10px; font-size:13px; min-width:110px;">
+                            <select id="manage-filter-category" class="select-field" style="padding:6px 10px; font-size:13px; min-width:120px;">
                                 <option value="all">전체 분야</option>
-                                <option value="내부심사">내부심사</option>
-                                <option value="운항정비 지점">운항정비 지점</option>
-                                <option value="운항정비 위탁">운항정비 위탁</option>
-                                <option value="중정비 위탁">중정비 위탁</option>
-                                <option value="정비 협력업체">정비 협력업체</option>
+                                <option value="해외운항지점">해외운항지점</option>
+                                <option value="완전위탁업체">완전위탁업체</option>
+                                <option value="엔진정비업체">엔진정비업체</option>
+                                <option value="중정비업체">중정비업체</option>
+                                <option value="국내업체">국내업체</option>
+                                <option value="내부 부서">내부 부서</option>
+                                <option value="국내운항지점">국내운항지점</option>
                             </select>
                         </div>
                         <div style="display:flex; align-items:center; gap:6px;">
@@ -1140,11 +1147,13 @@
                     <div class="form-group col-6">
                         <label for="target-category-select">심사 분야</label>
                         <select id="target-category-select" class="select-field" required>
-                            <option value="내부심사">내부심사</option>
-                            <option value="운항정비 지점">운항정비 지점</option>
-                            <option value="운항정비 위탁">운항정비 위탁</option>
-                            <option value="중정비 위탁">중정비 위탁</option>
-                            <option value="정비 협력업체">정비 협력업체</option>
+                            <option value="해외운항지점">해외운항지점</option>
+                            <option value="완전위탁업체">완전위탁업체</option>
+                            <option value="엔진정비업체">엔진정비업체</option>
+                            <option value="중정비업체">중정비업체</option>
+                            <option value="국내업체">국내업체</option>
+                            <option value="내부 부서">내부 부서</option>
+                            <option value="국내운항지점">국내운항지점</option>
                         </select>
                     </div>
                     <div class="form-group col-6">

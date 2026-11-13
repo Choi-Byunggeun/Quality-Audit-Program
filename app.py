@@ -508,7 +508,7 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
         elif path == "/api/targets/tree":
             conn = get_db_connection()
             cursor = conn.cursor()
-            categories = ["내부심사", "운항정비 지점", "운항정비 위탁", "중정비 위탁", "정비 협력업체"]
+            categories = ["해외운항지점", "완전위탁업체", "엔진정비업체", "중정비업체", "국내업체", "내부 부서", "국내운항지점"]
             cursor.execute("""
                 SELECT t.*, 
                     (SELECT COUNT(*) FROM audit_findings f WHERE f.target_id = t.id) as total_findings,
@@ -516,14 +516,14 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                     (SELECT MAX(scheduled_date) FROM audit_history h WHERE h.target_id = t.id AND h.status = '완료') as last_audit_date,
                     (SELECT MIN(scheduled_date) FROM audit_history h WHERE h.target_id = t.id AND h.status = '계획') as next_audit_date
                 FROM audit_targets t
-                ORDER BY t.station_name ASC
+                ORDER BY t.id ASC
             """)
             rows = [dict(r) for r in cursor.fetchall()]
             conn.close()
 
             tree = {cat: [] for cat in categories}
             for r in rows:
-                cat = r.get("category", "운항정비 위탁")
+                cat = r.get("category", "완전위탁업체")
                 if cat not in tree:
                     tree[cat] = []
                 tree[cat].append(r)

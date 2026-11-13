@@ -115,7 +115,7 @@ ROW_METADATA = {
     97: {"name": "Standard Aero (위니펙)", "ac": "B738", "eng": "CFM56", "aud26": "이진성"},
     98: {"name": "GA Telesis (HEL 헬싱키)", "ac": "B738,A333", "eng": "CFM56,TRENT700", "aud26": "원대연, 이진성"},
 
-    # 중정비업체 -> 중정비 위탁 (R099 ~ R111)
+    # 중정비업체 (R099 ~ R110)
     99:  {"name": "AMECO (CTU)", "ac": "B738,A332,A333", "eng": "CFM56,PW4100,TRENT700", "aud25": "유준열", "aud27": "김주원"},
     100: {"name": "Air Asia Company Ltd (TNN) - Heavy", "ac": "B738", "eng": "CFM56", "aud25": "원대연", "aud27": "권혁"},
     101: {"name": "SIAEP (CRK 클락) - HEAVY", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "원대연, 김주원", "aud27": "원대연"},
@@ -124,38 +124,43 @@ ROW_METADATA = {
     104: {"name": "GMF (CGK 자카르타) - C/K", "ac": "B738,A333", "eng": "CFM56,TRENT700", "aud25": "박현", "aud27": "원대연, 이진성"},
     105: {"name": "EASTEC (KMG)", "ac": "B738", "eng": "CFM56", "aud26": "김주원"},
     106: {"name": "STAECO (TNA)", "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "박병권"},
-    107: {"name": "STATCO (XIANMEN) - ENGINE", "ac": "B738", "eng": "CFM56", "aud25": "이진성", "aud27": "최병근"},
-    108: {"name": "HAITE (TIANJIN TSN 톈진)", "ac": "B738", "eng": "CFM56", "aud25": "박병권, 박현", "aud27": "김주원"},
-    109: {"name": "STARCO (SHA 상하이)", "ac": "B738,A332,A333", "eng": "CFM56,PW4100,TRENT700", "aud26": "박병권, 최병근"},
-    110: {"name": "GCAM (HAK 하이커우)", "ac": "B738,A333", "eng": "CFM56,TRENT700", "aud26": "원대연, 김주원"},
-    111: {"name": "HAECO (XMN)", "ac": "B738,B38M,A333,B773", "eng": "CFM56,LEAP-1B,TRENT700,GE90", "aud26": "최병근", "m26": 10},
+    107: {"name": "HAITE (TIANJIN TSN 톈진)", "ac": "B738", "eng": "CFM56", "aud25": "박병권, 박현", "aud27": "김주원"},
+    108: {"name": "STARCO (SHA 상하이)", "ac": "B738,A332,A333", "eng": "CFM56,PW4100,TRENT700", "aud26": "박병권, 최병근"},
+    109: {"name": "GCAM (HAK 하이커우)", "ac": "B738,A333", "eng": "CFM56,TRENT700", "aud26": "원대연, 김주원"},
+    110: {"name": "HAECO (XMN)", "ac": "B738,B38M,A333,B773", "eng": "CFM56,LEAP-1B,TRENT700,GE90", "aud26": "최병근", "m26": 10},
 
-    # 국내업체 (R112 ~ R135)
-    112: {"name": "대한항공 (ICN, GMP 인천,김포)", "cat": "운항정비 위탁", "intv": 2, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "박현", "aud27": "권혁, 김주원"},
-    113: {"name": "대한항공 (CJU 제주)", "cat": "운항정비 위탁", "intv": 2, "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박현", "aud27": "권혁, 김주원"},
-    114: {"name": "N3 ENGINE OVERHAUL SERVICES", "cat": "중정비 위탁", "intv": 2, "ac": "A333", "eng": "TRENT700", "aud25": "박병권, 최병근", "aud27": "박현"},
-    115: {"name": "Lufthansa Technik AG (Engine / HAM)", "cat": "중정비 위탁", "intv": 2, "ac": "A333,B773", "eng": "TRENT700,GE90", "aud25": "이진성, 최병근", "aud27": "박현"},
-    116: {"name": "대한항공 (중정비)", "cat": "중정비 위탁", "intv": 2, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "박현", "aud27": "권혁, 김주원"},
-    117: {"name": "GE ON WINGS KOREA", "cat": "중정비 위탁", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "최병근", "aud27": "박현"},
-    118: {"name": "KAEMS", "cat": "중정비 위탁", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "박현", "aud27": "유준열"},
-    119: {"name": "Sharp Technics K", "cat": "중정비 위탁", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "유준열"},
-    120: {"name": "대한항공 (기술관리, 직접 1년)", "cat": "운항정비 위탁", "intv": 2, "ac": "A332,A333,B773", "eng": "PW4100,TRENT700,GE90", "aud26": "권혁, 김주원"},
-    121: {"name": "DMT", "cat": "정비 협력업체", "intv": 1, "ac": "B738,B38M,A333", "eng": "", "aud25": "박현", "aud26": "박현", "m26": 7},
-    122: {"name": "대동금속", "cat": "정비 협력업체", "intv": 1, "ac": "B738,B38M", "eng": "", "aud26": "최병근", "m26": 6},
-    123: {"name": "고암에이스항공", "cat": "정비 협력업체", "intv": 1, "ac": "B738,B38M,A333", "eng": "", "aud26": "박병권", "m26": 8},
-    124: {"name": "항공기기술", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "권혁, 최병근", "m26": 9, "d24": "2024-09-01"},
-    125: {"name": "엔진기술", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "이진성, 김주원", "m26": 6, "d26": "2026-06-25", "st26": "완료", "d24": "2024-09-01"},
-    126: {"name": "정비기획", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "박병권, 최병근", "m26": 8, "d24": "2024-11-01"},
-    127: {"name": "정비자재", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "권혁, 박현", "aud26": "원대연, 유준열", "m26": 10, "d25": "2025-03-11", "d24": "2024-03-01"},
-    128: {"name": "정비통제", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "송동훈, 김주원", "m26": 11, "d24": "2024-11-01"},
-    129: {"name": "운항정비1,2", "cat": "내부심사", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "최병근, 박현", "aud26": "박병권, 권혁", "m26": 7, "d25": "2025-08-18", "d24": "2024-03-01"},
-    130: {"name": "부품수리", "cat": "내부심사", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "이병철", "aud26": "박병권", "m26": 3, "d26": "2026-03-25", "st26": "완료", "d25": "2025-09-24", "d24": "2024-05-01"},
-    131: {"name": "CJU (제주)", "cat": "운항정비 지점", "intv": 1, "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "이진성", "aud26": "원대연", "m26": 8, "d25": "2025-07-18", "d24": "2024-07-01"},
-    132: {"name": "TAE (대구)", "cat": "운항정비 지점", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "송동훈", "m26": 9, "d24": "2024-04-01"},
-    133: {"name": "KWJ (광주)", "cat": "운항정비 지점", "intv": 1, "ac": "B738", "eng": "CFM56", "aud25": "김한민", "aud26": "이진성", "m26": 5, "d26": "2026-05-29", "st26": "완료", "d25": "2025-05-29", "d24": "2024-05-01"},
-    134: {"name": "PUS (부산)", "cat": "운항정비 지점", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "최문성", "aud26": "원대연", "m26": 10, "d25": "2025-10-16", "d24": "2024-08-01"},
-    135: {"name": "CJJ (청주)", "cat": "운항정비 지점", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "이병철", "aud26": "이진성", "m26": 11, "d25": "2025-11-20", "d24": "2024-11-01"},
+    # 국내업체 (R111 ~ R122)
+    111: {"name": "대한항공 (ICN, GMP 인천,김포)", "intv": 2, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "박현", "aud27": "권혁, 김주원"},
+    112: {"name": "대한항공 (CJU 제주)", "intv": 2, "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "박현", "aud27": "권혁, 김주원"},
+    113: {"name": "N3 ENGINE OVERHAUL SERVICES", "intv": 2, "ac": "A333", "eng": "TRENT700", "aud25": "박병권, 최병근", "aud27": "박현"},
+    114: {"name": "Lufthansa Technik AG (Engine / HAM)", "intv": 2, "ac": "A333,B773", "eng": "TRENT700,GE90", "aud25": "이진성, 최병근", "aud27": "박현"},
+    115: {"name": "대한항공 (중정비)", "intv": 2, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "박현", "aud27": "권혁, 김주원"},
+    116: {"name": "GE ON WINGS KOREA", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "최병근", "aud27": "박현"},
+    117: {"name": "KAEMS", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "박현", "aud27": "유준열"},
+    118: {"name": "Sharp Technics K", "intv": 2, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "유준열"},
+    119: {"name": "대한항공 (기술관리, 직접 1년)", "intv": 2, "ac": "A332,A333,B773", "eng": "PW4100,TRENT700,GE90", "aud26": "권혁, 김주원"},
+    120: {"name": "DMT", "intv": 1, "ac": "B738,B38M,A333", "eng": "", "aud25": "박현", "aud26": "박현", "m26": 7},
+    121: {"name": "대동금속", "intv": 1, "ac": "B738,B38M", "eng": "", "aud26": "최병근", "m26": 6},
+    122: {"name": "고암에이스항공", "intv": 1, "ac": "B738,B38M,A333", "eng": "", "aud26": "박병권", "m26": 8},
+
+    # 내부 부서 (R123 ~ R129)
+    123: {"name": "항공기기술", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "권혁, 최병근", "m26": 9, "d24": "2024-09-01"},
+    124: {"name": "엔진기술", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "이진성, 김주원", "m26": 6, "d26": "2026-06-25", "st26": "완료", "d24": "2024-09-01"},
+    125: {"name": "정비기획", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "박병권, 최병근", "m26": 8, "d24": "2024-11-01"},
+    126: {"name": "정비자재", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "권혁, 박현", "aud26": "원대연, 유준열", "m26": 10, "d25": "2025-03-11", "d24": "2024-03-01"},
+    127: {"name": "정비통제", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud26": "송동훈, 김주원", "m26": 11, "d24": "2024-11-01"},
+    128: {"name": "운항정비1,2", "intv": 1, "ac": "B738,B38M,A332,A333,B773", "eng": "CFM56,LEAP-1B,PW4100,TRENT700,GE90", "aud25": "최병근, 박현", "aud26": "박병권, 권혁", "m26": 7, "d25": "2025-08-18", "d24": "2024-03-01"},
+    129: {"name": "부품수리", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "이병철", "aud26": "박병권", "m26": 3, "d26": "2026-03-25", "st26": "완료", "d25": "2025-09-24", "d24": "2024-05-01"},
+
+    # 국내운항지점 (R130 ~ R134)
+    130: {"name": "CJU (제주)", "intv": 1, "ac": "B738,B38M,A333", "eng": "CFM56,LEAP-1B,TRENT700", "aud25": "이진성", "aud26": "원대연", "m26": 8, "d25": "2025-07-18", "d24": "2024-07-01"},
+    131: {"name": "TAE (대구)", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud26": "송동훈", "m26": 9, "d24": "2024-04-01"},
+    132: {"name": "KWJ (광주)", "intv": 1, "ac": "B738", "eng": "CFM56", "aud25": "김한민", "aud26": "이진성", "m26": 5, "d26": "2026-05-29", "st26": "완료", "d25": "2025-05-29", "d24": "2024-05-01"},
+    133: {"name": "PUS (부산)", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "최문성", "aud26": "원대연", "m26": 10, "d25": "2025-10-16", "d24": "2024-08-01"},
+    134: {"name": "CJJ (청주)", "intv": 1, "ac": "B738,B38M", "eng": "CFM56,LEAP-1B", "aud25": "이병철", "aud26": "이진성", "m26": 11, "d25": "2025-11-20", "d24": "2024-11-01"},
 }
+
+NAME_METADATA = {v["name"].replace(" ", "").upper(): v for v in ROW_METADATA.values() if "name" in v}
 
 def parse_excel_date(val, default_year, default_month=6):
     if val is not None:
@@ -277,23 +282,15 @@ def rebuild_clean_database(excel_path=None):
             continue
 
         op_status = "비운항" if op_raw == "비운항" else "운항"
-        meta = ROW_METADATA.get(r, {})
+        meta = ROW_METADATA.get(r) or NAME_METADATA.get(st_raw.replace(" ", "").upper(), {})
 
-        # 표준 5대 분류 및 주기 결정
-        if "cat" in meta:
-            std_cat = meta["cat"]
-            base_interval = meta.get("intv", 2)
-        elif last_raw_cat == "해외운항지점":
-            std_cat = "운항정비 지점"
-            base_interval = 2
-        elif last_raw_cat == "완전위탁업체":
-            std_cat = "운항정비 위탁"
-            base_interval = 2
-        elif last_raw_cat in ("엔진정비업체", "중정비업체"):
-            std_cat = "중정비 위탁"
-            base_interval = 2
+        # 엑셀 A열(유형) 7대 카테고리 그대로 사용 및 심사 주기 결정
+        std_cat = last_raw_cat if last_raw_cat else meta.get("cat", "완전위탁업체")
+        if "intv" in meta:
+            base_interval = meta["intv"]
+        elif std_cat in ("내부 부서", "국내운항지점"):
+            base_interval = 1
         else:
-            std_cat = "운항정비 위탁"
             base_interval = 2
 
         station_name = meta.get("name", st_raw)

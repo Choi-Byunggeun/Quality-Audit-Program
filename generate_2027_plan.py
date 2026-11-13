@@ -86,43 +86,43 @@ def extract_month_from_prev(prev_str, default_month):
 plan_definitions = [
     # --- 1. 내부 - 정비부문 각 부서 (8행: 직접 7건 + 정비품질 대체 1건) ---
     {
-        'm_row': 124, 'gubun': '내부', 'area': '정비부문 각 부서', 'item': None, 'country': '국내',
+        'm_row': 123, 'gubun': '내부', 'area': '정비부문 각 부서', 'item': None, 'country': '국내',
         'target': '항공기기술', 'checklist': 'TW-MNT-001 항공기기술', 'fallback_prev': '2026.09(직)',
         'interval': '1년', 'plan_month': 9, 'auditor': '권혁, 최병근', 'etc': None,
         'cat_code': 1, 'stat_cat': '정비본부'
     },
     {
-        'm_row': 125, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 124, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': '엔진기술', 'checklist': 'TW-MNT-014 엔진기술', 'fallback_prev': '2026.04.08(직)',
         'interval': None, 'plan_month': 4, 'auditor': '이진성, 김주원', 'etc': None,
         'cat_code': 1, 'stat_cat': '정비본부'
     },
     {
-        'm_row': 126, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 125, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': '정비기획', 'checklist': 'TW-MNT-002 정비기획', 'fallback_prev': '2026.08(직)',
         'interval': None, 'plan_month': 8, 'auditor': '박병권, 최병근', 'etc': None,
         'cat_code': 1, 'stat_cat': '정비본부'
     },
     {
-        'm_row': 127, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 126, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': '정비자재', 'checklist': 'TW-MNT-003 정비자재', 'fallback_prev': '2026.10(직)',
         'interval': None, 'plan_month': 10, 'auditor': '원대연, 유준열', 'etc': None,
         'cat_code': 1, 'stat_cat': '정비본부'
     },
     {
-        'm_row': 128, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 127, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': '정비통제', 'checklist': 'TW-MNT-005 정비통제', 'fallback_prev': '2026.11(직)',
         'interval': None, 'plan_month': 11, 'auditor': '송동훈, 김주원', 'etc': None,
         'cat_code': 1, 'stat_cat': '정비본부'
     },
     {
-        'm_row': 129, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 128, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': '운항정비 1,2', 'checklist': 'TW-MNT-010 정비기지공항', 'fallback_prev': '2026.07(직)',
         'interval': None, 'plan_month': 7, 'auditor': '박병권, 권혁', 'etc': None,
         'cat_code': 1, 'stat_cat': '정비본부'
     },
     {
-        'm_row': 130, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 129, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': '부품수리', 'checklist': 'TW-MNT-012 부품수리', 'fallback_prev': '2026.03.25(직)',
         'interval': None, 'plan_month': 3, 'auditor': '박병권', 'etc': None,
         'cat_code': 1, 'stat_cat': '정비본부'
@@ -136,31 +136,31 @@ plan_definitions = [
 
     # --- 2. 내부 - 국내 운항지점 (5행: 직접 5건) ---
     {
-        'm_row': 131, 'gubun': None, 'area': '국내 운항지점', 'item': None, 'country': '국내',
+        'm_row': 130, 'gubun': None, 'area': '국내 운항지점', 'item': None, 'country': '국내',
         'target': 'CJU (제주)', 'checklist': 'TW-MNT-007\n주재정비공항', 'fallback_prev': '2026.08(직)',
         'interval': None, 'plan_month': 8, 'auditor': '원대연', 'etc': None,
         'cat_code': 1, 'stat_cat': '국내 운항지점'
     },
     {
-        'm_row': 132, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 131, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': 'TAE (대구)', 'checklist': None, 'fallback_prev': '2026.09(직)',
         'interval': None, 'plan_month': 9, 'auditor': '송동훈', 'etc': None,
         'cat_code': 1, 'stat_cat': '국내 운항지점'
     },
     {
-        'm_row': 133, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 132, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': 'KWJ (광주)', 'checklist': None, 'fallback_prev': '2026.05.29(직)',
         'interval': None, 'plan_month': 5, 'auditor': '이진성', 'etc': None,
         'cat_code': 1, 'stat_cat': '국내 운항지점'
     },
     {
-        'm_row': 134, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 133, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': 'PUS (부산)', 'checklist': None, 'fallback_prev': '2026.10(직)',
         'interval': None, 'plan_month': 10, 'auditor': '원대연', 'etc': None,
         'cat_code': 1, 'stat_cat': '국내 운항지점'
     },
     {
-        'm_row': 135, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 134, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': 'CJJ (청주)', 'checklist': None, 'fallback_prev': '2026.11(직)',
         'interval': None, 'plan_month': 11, 'auditor': '이진성', 'etc': None,
         'cat_code': 1, 'stat_cat': '국내 운항지점'
@@ -338,19 +338,19 @@ plan_definitions = [
         'cat_code': 3, 'stat_cat': '운항정비위탁'
     },
     {
-        'm_row': 112, 'gubun': None, 'area': None, 'item': None, 'country': '국내',
+        'm_row': 111, 'gubun': None, 'area': None, 'item': None, 'country': '국내',
         'target': '대한항공 (ICN, GMP 인천,김포)', 'checklist': None, 'fallback_prev': '2025.01.09~10(간)',
         'interval': None, 'plan_month': 5, 'auditor': '권혁, 김주원', 'etc': '국내 운항정비 위탁',
         'cat_code': 4, 'stat_cat': '국내정비위탁'
     },
     {
-        'm_row': 113, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 112, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': '대한항공 (CJU 제주)', 'checklist': None, 'fallback_prev': '2025.01.09~10(간)',
         'interval': None, 'plan_month': 5, 'auditor': '권혁, 김주원', 'etc': '국내 운항정비 위탁',
         'cat_code': 4, 'stat_cat': '국내정비위탁'
     },
 
-    # --- 5. 외부 - 주요 정비작업 업체 - 항공기 중정비 (10행: 직접 6건, 간접 4건) ---
+    # --- 5. 외부 - 주요 정비작업 업체 - 항공기 중정비 (9행: 직접 5건, 간접 4건) ---
     {
         'm_row': 99, 'gubun': None, 'area': '주요 \n정비작업 업체', 'item': '항공기\n중정비', 'country': '중국',
         'target': 'AMECO (CTU 청두)', 'checklist': None, 'fallback_prev': '2025.10.13(간)',
@@ -359,12 +359,6 @@ plan_definitions = [
     },
     {
         'm_row': 107, 'gubun': None, 'area': None, 'item': None, 'country': None,
-        'target': 'STATCO (XMN 샤먼)', 'checklist': None, 'fallback_prev': '2025.11.17~18(간)',
-        'interval': None, 'plan_month': 11, 'auditor': '최병근', 'etc': None,
-        'cat_code': 3, 'stat_cat': '중정비위탁'
-    },
-    {
-        'm_row': 108, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': 'HAITE (TSN 톈진)', 'checklist': None, 'fallback_prev': '2025.03.17~19(직)',
         'interval': None, 'plan_month': 3, 'auditor': '김주원', 'etc': None,
         'cat_code': 3, 'stat_cat': '중정비위탁'
@@ -400,19 +394,19 @@ plan_definitions = [
         'cat_code': 3, 'stat_cat': '중정비위탁'
     },
     {
-        'm_row': 116, 'gubun': None, 'area': None, 'item': None, 'country': '국내',
+        'm_row': 115, 'gubun': None, 'area': None, 'item': None, 'country': '국내',
         'target': '대한항공 (중정비)', 'checklist': None, 'fallback_prev': '2025.01.09~10(간)',
         'interval': None, 'plan_month': 5, 'auditor': '권혁, 김주원', 'etc': None,
         'cat_code': 4, 'stat_cat': '국내정비위탁'
     },
     {
-        'm_row': 118, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 117, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': 'KAEMS', 'checklist': None, 'fallback_prev': '2025.09.11(간)',
         'interval': None, 'plan_month': 9, 'auditor': '유준열', 'etc': None,
         'cat_code': 4, 'stat_cat': '국내정비위탁'
     },
 
-    # --- 6. 외부 - 주요 정비작업 업체 - 엔진 중정비 (7행: 직접 5건, 간접 2건) ---
+    # --- 6. 외부 - 주요 정비작업 업체 - 엔진 중정비 ---
     {
         'm_row': 92, 'gubun': None, 'area': None, 'item': '엔진\n중정비', 'country': '중국',
         'target': 'ST Aerospace Engines Pte Ltd (XIAMEN)', 'checklist': None, 'fallback_prev': '2025.08.22(간)',
@@ -438,19 +432,19 @@ plan_definitions = [
         'cat_code': 3, 'stat_cat': '중정비위탁'
     },
     {
-        'm_row': 114, 'gubun': None, 'area': None, 'item': None, 'country': '독일',
+        'm_row': 113, 'gubun': None, 'area': None, 'item': None, 'country': '독일',
         'target': 'N3 Engine Overhaul Services', 'checklist': None, 'fallback_prev': '2025.09.16~18(직)',
         'interval': None, 'plan_month': 9, 'auditor': '박현', 'etc': None,
         'cat_code': 3, 'stat_cat': '중정비위탁'
     },
     {
-        'm_row': 115, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 114, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': 'Lufthansa Technik AG (Engine / HAM)', 'checklist': None, 'fallback_prev': '2025.04.16~18(직)',
         'interval': None, 'plan_month': 4, 'auditor': '박현', 'etc': None,
         'cat_code': 3, 'stat_cat': '중정비위탁'
     },
     {
-        'm_row': 117, 'gubun': None, 'area': None, 'item': None, 'country': '국내',
+        'm_row': 116, 'gubun': None, 'area': None, 'item': None, 'country': '국내',
         'target': 'GE ON WINGS KOREA', 'checklist': None, 'fallback_prev': '2025.05.26~28(간)',
         'interval': None, 'plan_month': 5, 'auditor': '박현', 'etc': None,
         'cat_code': 4, 'stat_cat': '국내정비위탁'
@@ -458,19 +452,19 @@ plan_definitions = [
 
     # --- 7. 외부 - 정비 협력업체 (3행: 직접 3건 - 대동금속, 고암에이스항공, DMT) ---
     {
-        'm_row': 122, 'gubun': None, 'area': '정비 협력업체', 'item': '도급', 'country': '국내',
+        'm_row': 121, 'gubun': None, 'area': '정비 협력업체', 'item': '도급', 'country': '국내',
         'target': '대동금속', 'checklist': 'TW-MNT-013\n도급업체', 'fallback_prev': '2026.06.23(직)',
         'interval': '1년', 'plan_month': 6, 'auditor': '최병근', 'etc': None,
         'cat_code': 4, 'stat_cat': '정비협력업체'
     },
     {
-        'm_row': 123, 'gubun': None, 'area': None, 'item': None, 'country': None,
+        'm_row': 122, 'gubun': None, 'area': None, 'item': None, 'country': None,
         'target': '고암에이스항공', 'checklist': 'TW-MNT-014\n협력업체', 'fallback_prev': '2026.08.19(직)',
         'interval': None, 'plan_month': 8, 'auditor': '박병권', 'etc': None,
         'cat_code': 4, 'stat_cat': '정비협력업체'
     },
     {
-        'm_row': 121, 'gubun': None, 'area': None, 'item': 'W/T', 'country': None,
+        'm_row': 120, 'gubun': None, 'area': None, 'item': 'W/T', 'country': None,
         'target': 'DMT', 'checklist': None, 'fallback_prev': '2026.07.30(직)',
         'interval': None, 'plan_month': 7, 'auditor': '박현', 'etc': None,
         'cat_code': 4, 'stat_cat': '정비협력업체'

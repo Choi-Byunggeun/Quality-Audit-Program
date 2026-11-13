@@ -187,54 +187,72 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     // --------------------------------------------------------
-    // 6대 심사 분야 카테고리 메타데이터
-    // DB 카테고리값 → cat1~cat6 매핑
+    // 7대 심사 분야 카테고리 메타데이터 (Master 엑셀 A열 기준)
+    // DB 카테고리값 → cat1~cat7 매핑
     // --------------------------------------------------------
     const CATEGORY_META = [
         {
             key: "cat1",
-            label: "내부심사",
+            label: "해외운항지점",
             color: "#38bdf8",
-            icon: "fa-building-user",
+            icon: "fa-globe",
             badgeClass: "cat-badge-1",
             rowClass: "cat-row-1",
-            match: ["내부심사", "내부", "본부", "정비본부"]
+            match: ["해외운항지점", "해외운항", "해외주재"]
         },
         {
             key: "cat2",
-            label: "운항정비 지점",
-            color: "#10b981",
-            icon: "fa-location-dot",
+            label: "완전위탁업체",
+            color: "#f59e0b",
+            icon: "fa-handshake",
             badgeClass: "cat-badge-2",
             rowClass: "cat-row-2",
-            match: ["운항정비 지점", "운항정비지점", "운항지점", "주재"]
+            match: ["완전위탁업체", "완전위탁", "운항정비 위탁"]
         },
         {
             key: "cat3",
-            label: "운항정비 위탁",
-            color: "#f59e0b",
-            icon: "fa-handshake",
+            label: "엔진정비업체",
+            color: "#f97316",
+            icon: "fa-fire-flame-curved",
             badgeClass: "cat-badge-3",
             rowClass: "cat-row-3",
-            match: ["운항정비 위탁", "운항정비위탁", "운항위탁", "완전위탁"]
+            match: ["엔진정비업체", "엔진정비", "엔진중정비"]
         },
         {
             key: "cat4",
-            label: "중정비 위탁",
+            label: "중정비업체",
             color: "#ec4899",
             icon: "fa-warehouse",
-            badgeClass: "cat-badge-5",
-            rowClass: "cat-row-5",
-            match: ["중정비 위탁", "중정비위탁", "중정비", "엔진"]
+            badgeClass: "cat-badge-4",
+            rowClass: "cat-row-4",
+            match: ["중정비업체", "항공기중정비", "중정비 위탁"]
         },
         {
             key: "cat5",
-            label: "정비 협력업체",
+            label: "국내업체",
             color: "#a855f7",
             icon: "fa-toolbox",
+            badgeClass: "cat-badge-5",
+            rowClass: "cat-row-5",
+            match: ["국내업체", "정비 협력업체", "협력업체"]
+        },
+        {
+            key: "cat6",
+            label: "내부 부서",
+            color: "#60a5fa",
+            icon: "fa-building-user",
             badgeClass: "cat-badge-6",
             rowClass: "cat-row-6",
-            match: ["정비 협력업체", "정비협력업체", "협력업체", "국내업체"]
+            match: ["내부 부서", "내부부서", "내부심사"]
+        },
+        {
+            key: "cat7",
+            label: "국내운항지점",
+            color: "#10b981",
+            icon: "fa-location-dot",
+            badgeClass: "cat-badge-7",
+            rowClass: "cat-row-7",
+            match: ["국내운항지점", "국내운항", "국내주재", "운항정비 지점"]
         }
     ];
 
@@ -244,10 +262,17 @@ document.addEventListener("DOMContentLoaded", () => {
      */
     function resolveCategoryMeta(categoryStr) {
         if (!categoryStr) return null;
-        const lower = categoryStr.toLowerCase().replace(/\s/g, "");
+        const norm = categoryStr.toLowerCase().replace(/\s/g, "");
+        // 1차: 정확히 일치하는 라벨 우선
+        for (const meta of CATEGORY_META) {
+            if (meta.label.toLowerCase().replace(/\s/g, "") === norm) {
+                return meta;
+            }
+        }
+        // 2차: 키워드 포함 매칭
         for (const meta of CATEGORY_META) {
             for (const kw of meta.match) {
-                if (lower.includes(kw.toLowerCase().replace(/\s/g, ""))) {
+                if (norm.includes(kw.toLowerCase().replace(/\s/g, ""))) {
                     return meta;
                 }
             }
@@ -2183,10 +2208,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // 카테고리 필터
             if (catFilter !== "all") {
-                const meta = resolveCategoryMeta(target.category);
-                if (!meta || !meta.match.some(m => m.includes(catFilter) || catFilter.includes(m))) {
-                    // direct category string fallback
-                    if (!target.category || !target.category.includes(catFilter)) {
+                if (target.category !== catFilter) {
+                    const meta = resolveCategoryMeta(target.category);
+                    if (!meta || meta.label !== catFilter) {
                         return false;
                     }
                 }
@@ -2312,7 +2336,7 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById("target-modal-title").textContent = "신규 심사 대상 등록";
             document.getElementById("target-edit-id").value = "";
             document.getElementById("target-name-input").value = "";
-            document.getElementById("target-category-select").value = "운항정비 지점";
+            document.getElementById("target-category-select").value = "해외운항지점";
             document.getElementById("target-status-select").value = "운항";
             document.getElementById("target-interval-input").value = "2";
 
@@ -3154,11 +3178,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function getFolderIconClass(category) {
-        if (category.includes("내부")) return "fa-solid fa-building-user folder-icon-internal";
-        if (category.includes("지점")) return "fa-solid fa-location-dot folder-icon-line-station";
-        if (category.includes("운항정비 위탁")) return "fa-solid fa-handshake folder-icon-line-outsource";
+        if (category.includes("해외운항")) return "fa-solid fa-globe folder-icon-line-station";
+        if (category.includes("완전위탁")) return "fa-solid fa-handshake folder-icon-line-outsource";
+        if (category.includes("엔진정비")) return "fa-solid fa-fire-flame-curved folder-icon-heavy";
         if (category.includes("중정비")) return "fa-solid fa-warehouse folder-icon-heavy";
-        return "fa-solid fa-toolbox folder-icon-partner";
+        if (category.includes("국내업체")) return "fa-solid fa-toolbox folder-icon-partner";
+        if (category.includes("내부")) return "fa-solid fa-building-user folder-icon-internal";
+        if (category.includes("국내운항")) return "fa-solid fa-location-dot folder-icon-line-station";
+        return "fa-solid fa-folder folder-icon-partner";
     }
 
     function renderAnalysisTree() {
@@ -3193,7 +3220,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const groupDiv = document.createElement("div");
             groupDiv.className = "analysis-folder-group";
-            const isAutoExpanded = keyword.length > 0 ? filteredTargets.length > 0 : (cat.includes("운항정비 위탁") || cat.includes("내부심사") || filteredTargets.some(t => t.id === selectedAnalysisTargetId));
+            const isAutoExpanded = keyword.length > 0 ? filteredTargets.length > 0 : (cat === "해외운항지점" || cat === "완전위탁업체" || filteredTargets.some(t => t.id === selectedAnalysisTargetId));
             if (isAutoExpanded) {
                 groupDiv.classList.add("expanded");
             }
