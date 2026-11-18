@@ -53,7 +53,7 @@ def migrate():
         batch_size = 50
         for i in range(0, len(rows), batch_size):
             chunk = rows[i:i + batch_size]
-            stmts = [(insert_sql, tuple(r)) for r in chunk]
+            stmts = [("PRAGMA foreign_keys = OFF", None)] + [(insert_sql, tuple(r)) for r in chunk]
             turso.execute_batch(stmts)
         print(f"  - {tname}: {len(rows)} rows migrated")
 
