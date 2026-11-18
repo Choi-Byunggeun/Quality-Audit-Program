@@ -262,13 +262,17 @@ STANDARD_CHECKLIST_CATALOG = [
     {"code": "TW-MNT-001", "title": "항공기기술 품질심사 점검표", "category": "내부 부서", "targets": "항공기기술"},
     {"code": "TW-MNT-002", "title": "정비기획 품질심사 점검표", "category": "내부 부서", "targets": "정비기획"},
     {"code": "TW-MNT-003", "title": "정비자재 품질심사 점검표", "category": "내부 부서", "targets": "정비자재"},
+    {"code": "TW-MNT-004", "title": "정비품질 품질심사 점검표", "category": "내부 부서", "targets": "정비품질"},
     {"code": "TW-MNT-005", "title": "정비통제 품질심사 점검표", "category": "내부 부서", "targets": "정비통제"},
-    {"code": "TW-MNT-007", "title": "주재정비공항 품질심사 점검표", "category": "해외운항지점,국내운항지점", "targets": "국내운항지점,해외운항지점"},
-    {"code": "TW-MNT-008", "title": "위탁정비업체 품질심사 점검표", "category": "완전위탁업체,엔진정비업체,중정비업체,국내업체", "targets": "완전위탁업체,엔진정비업체,중정비업체,대한항공,KAEMS,N3,Lufthansa,GE ON WINGS,Sharp"},
-    {"code": "TW-MNT-010", "title": "정비기지공항(운항정비1,2) 품질심사 점검표", "category": "내부 부서", "targets": "운항정비1,2"},
-    {"code": "TW-MNT-012", "title": "부품수리 품질심사 점검표", "category": "내부 부서", "targets": "부품수리"},
+    {"code": "TW-MNT-006", "title": "운항지점 공항(탑승) 심사 점검표", "category": "해외운항지점,국내운항지점", "targets": "탑승심사"},
+    {"code": "TW-MNT-007", "title": "운항지점 공항(주재) 품질심사 점검표", "category": "해외운항지점,국내운항지점", "targets": "국내운항지점,해외운항지점"},
+    {"code": "TW-MNT-010", "title": "운항정비 품질심사 점검표", "category": "내부 부서", "targets": "운항정비1,2"},
+    {"code": "TW-MNT-012", "title": "부품수리파트 품질심사 점검표", "category": "내부 부서", "targets": "부품수리"},
     {"code": "TW-MNT-013", "title": "도급업체 품질심사 점검표", "category": "국내업체", "targets": "대동금속"},
-    {"code": "TW-MNT-014", "title": "엔진기술 / 협력업체 품질심사 점검표", "category": "내부 부서,국내업체", "targets": "엔진기술,고암에이스항공,DMT"},
+    {"code": "TW-MNT-014", "title": "엔진기술 품질심사 점검표", "category": "내부 부서,국내업체", "targets": "엔진기술,고암에이스항공,DMT"},
+    {"code": "TW-MNT-016", "title": "항공기 기술관리 위탁업체 품질심사 점검표", "category": "국내업체,완전위탁업체", "targets": "기술관리"},
+    {"code": "TW-MNT-017", "title": "중정비 위탁정비업체 품질심사 점검표", "category": "중정비업체,엔진정비업체,국내업체", "targets": "중정비,엔진,KAEMS,N3,Lufthansa,GE ON WINGS,Sharp"},
+    {"code": "TW-MNT-018", "title": "운항정비 위탁정비업체 품질심사 점검표", "category": "완전위탁업체", "targets": "완전위탁업체"},
 ]
 
 def resolve_default_template_code(station_name: str, category: str) -> str:
@@ -282,6 +286,8 @@ def resolve_default_template_code(station_name: str, category: str) -> str:
             return "TW-MNT-002"
         if "정비자재" in s:
             return "TW-MNT-003"
+        if "정비품질" in s or "자체" in s:
+            return "TW-MNT-004"
         if "정비통제" in s:
             return "TW-MNT-005"
         if "운항정비" in s:
@@ -292,14 +298,22 @@ def resolve_default_template_code(station_name: str, category: str) -> str:
             return "TW-MNT-014"
         return "TW-MNT-005"
     if cat in ("해외운항지점", "국내운항지점"):
+        if "탑승" in s:
+            return "TW-MNT-006"
         return "TW-MNT-007"
+    if cat == "완전위탁업체":
+        return "TW-MNT-018"
+    if cat in ("중정비업체", "엔진정비업체"):
+        return "TW-MNT-017"
     if cat == "국내업체":
         if "대동금속" in s:
             return "TW-MNT-013"
         if "고암" in s or "DMT" in s.upper():
             return "TW-MNT-014"
-        return "TW-MNT-008"
-    return "TW-MNT-008"
+        if "기술관리" in s:
+            return "TW-MNT-016"
+        return "TW-MNT-017"
+    return "TW-MNT-018"
 
 def _ensure_checklists_schema():
     conn = get_db_connection()
@@ -1463,13 +1477,42 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             purpose_other = sess_dict.get("audit_purpose_other") or "                            "
             ws["E6"].value = " ■ Schedule" if purpose == "Schedule" else " □ Schedule"
             ws["G6"].value = " ■ Unscheduled" if purpose == "Unscheduled" else " □ Unscheduled"
-            ws["K6"].value = f"■ Others({purpose_other})" if purpose == "Others" else "□ Others(                            )"
+            if "Others" in str(ws["K6"].value or ""):
+                ws["K6"].value = f"■ Others({purpose_other})" if purpose == "Others" else "□ Others(                            )"
 
-            ws["A9"].value = sess_dict.get("auditee_team") or sess_dict.get("station_name") or ""
-            ws["D9"].value = sess_dict.get("auditee_coordinator") or ""
-            ws["E9"].value = sess_dict.get("auditee_title") or ""
-            ws["I9"].value = sess_dict.get("auditee_phone") or ""
-            ws["A14"].value = sess_dict.get("remark") or ""
+            team_val = sess_dict.get("auditee_team") or sess_dict.get("station_name") or ""
+            coord_val = sess_dict.get("auditee_coordinator") or ""
+            title_val = sess_dict.get("auditee_title") or ""
+            phone_val = sess_dict.get("auditee_phone") or ""
+            remark_val = sess_dict.get("remark") or ""
+
+            # 양식별 헤더 구조에 맞게 라벨을 덮어쓰지 않고 빈 입력셀에만 정확히 기입
+            if "팀/부문" in str(ws["A8"].value or ""):
+                ws["A9"].value = team_val
+                ws["D9"].value = coord_val
+                ws["E9"].value = title_val
+                ws["I9"].value = phone_val
+            elif "팀/부문" in str(ws["A11"].value or ""):
+                ws["A12"].value = team_val
+                ws["D12"].value = coord_val
+                ws["E12"].value = title_val
+                ws["I12"].value = phone_val
+                if "공항명" in str(ws["A8"].value or "") and not ws["E8"].value:
+                    ws["E8"].value = sess_dict.get("station_name") or team_val
+            else:
+                if "공항명" in str(ws["A8"].value or "") and not ws["E8"].value:
+                    ws["E8"].value = sess_dict.get("station_name") or team_val
+                if "업체명" in str(ws["A9"].value or "") and not ws["E9"].value:
+                    ws["E9"].value = team_val
+                elif "업체명" in str(ws["A10"].value or "") and not ws["E10"].value:
+                    ws["E10"].value = team_val
+                elif "업체명" in str(ws["A11"].value or "") and not ws["E11"].value:
+                    ws["E11"].value = team_val
+
+            if "비고" in str(ws["A13"].value or "") and not ws["A14"].value:
+                ws["A14"].value = remark_val
+            elif "비고" in str(ws["A14"].value or "") and not ws["A15"].value:
+                ws["A15"].value = remark_val
 
             # 각 문항별 S(7열), U/S(8열), N/A(9열), N/O(10열), OBS(11열)에 선택 항목은 'Y', 나머지는 'N' 표기 + Comments(12열)
             for it in items:
