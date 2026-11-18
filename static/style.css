@@ -4581,7 +4581,15 @@ body {
 
 /* 접속 즉시 로그인 게이트 잠금 */
 .app-container.auth-locked {
-    filter: blur(12px) brightness(0.45);
-    pointer-events: none;
+    filter: blur(8px) brightness(0.5);
     user-select: none;
+}
+
+.app-container.auth-locked > aside,
+.app-container.auth-locked > main .tab-pane {
+    pointer-events: none;
+}
+
+.app-container.auth-locked .main-header {
+    pointer-events: auto;
 }

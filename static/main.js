@@ -3285,7 +3285,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btnRefreshUsers) {
         btnRefreshUsers.addEventListener('click', loadUsersTable);
     }
-    }
 
     // ========================================================
     // PRE-AUDIT TARGET ANALYSIS & 5-FOLDERS EXPLORER MODULE
