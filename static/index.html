@@ -1567,8 +1567,8 @@
                         <i class="fa-solid fa-circle-info"></i> <strong>초기 로그인 안내</strong>
                     </div>
                     <ul class="inst-list">
-                        <li><strong>• ID:</strong> 본인 사번 (예: <code>t123123</code> / 대소문자 무관)</li>
-                        <li><strong>• 초기 비밀번호:</strong> 사번에서 't'를 제외한 숫자 6자리 (예: <code>123123</code>)</li>
+                        <li><strong>• ID:</strong> 본인 사번 (예: <code>t180476</code> / 대소문자 무관)</li>
+                        <li><strong>• 초기 비밀번호:</strong> 사번에서 't'를 제외한 숫자 6자리 (관리자 지정 사번 <code>t180476</code>, <code>t180479</code>: <code>123456</code>)</li>
                     </ul>
                     <div class="inst-footer">
                         ※ 로그인 후 상단 프로필 옆 <strong>[<i class="fa-solid fa-key"></i> 비밀번호 변경]</strong>에서 원하는 숫자 6자리로 언제든 변경할 수 있습니다.
@@ -1577,24 +1577,24 @@
 
                 <div class="form-group" style="margin-top:16px;">
                     <label for="login-username"><i class="fa-solid fa-id-card"></i> 사번 또는 관리자 아이디</label>
-                    <input type="text" id="login-username" class="input-field" placeholder="예: t180476 또는 admin" required autofocus>
+                    <input type="text" id="login-username" class="input-field" placeholder="예: t180476 또는 t180479" required autofocus>
                 </div>
                 <div class="form-group">
                     <label for="login-password"><i class="fa-solid fa-lock"></i> 비밀번호</label>
-                    <input type="password" id="login-password" class="input-field" placeholder="비밀번호 입력 (초기: 사번 숫자 6자리)" required>
+                    <input type="password" id="login-password" class="input-field" placeholder="비밀번호 입력 (초기: 사번 숫자 6자리 / 관리자: 123456)" required>
                 </div>
 
                 <div class="quick-login-box">
                     <div class="quick-login-title"><i class="fa-solid fa-bolt"></i> 빠른 테스트 로그인</div>
                     <div class="quick-login-buttons">
-                        <button type="button" class="btn-quick-login btn-quick-admin" onclick="quickLogin('admin', 'admin1234')">
-                            <i class="fa-solid fa-user-shield"></i> 관리자 (admin)
+                        <button type="button" class="btn-quick-login btn-quick-admin" onclick="quickLogin('t180476', '123456')">
+                            <i class="fa-solid fa-user-shield"></i> 관리자 1 (최병근)
                         </button>
-                        <button type="button" class="btn-quick-login" onclick="quickLogin('T250286', '250286')">
-                            <i class="fa-solid fa-user"></i> 심사원 (박영일)
+                        <button type="button" class="btn-quick-login btn-quick-admin" onclick="quickLogin('t180479', '123456')">
+                            <i class="fa-solid fa-user-shield"></i> 관리자 2 (박현)
                         </button>
-                        <button type="button" class="btn-quick-login" onclick="quickLogin('T180476', '180476')">
-                            <i class="fa-solid fa-user"></i> 심사원 (최병근)
+                        <button type="button" class="btn-quick-login" onclick="quickLogin('t250286', '250286')">
+                            <i class="fa-solid fa-user"></i> 일반 심사원 (박영일)
                         </button>
                     </div>
                 </div>

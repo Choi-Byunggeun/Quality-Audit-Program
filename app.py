@@ -218,11 +218,17 @@ def _ensure_users_table():
         if emp_id:
             c.execute("SELECT id FROM users WHERE UPPER(username) = UPPER(?)", (emp_id,))
             if not c.fetchone():
-                init_pw = get_default_password_for_employee(emp_id)
+                init_pw = "123456" if emp_id.upper() in ("T180476", "T180479") else get_default_password_for_employee(emp_id)
+                role = "admin" if emp_id.upper() in ("T180476", "T180479") else "user"
                 c.execute("""
                     INSERT INTO users (username, password, name, role, employee_id, auditor_id)
-                    VALUES (?, ?, ?, 'user', ?, ?)
-                """, (emp_id.upper(), init_pw, name_kr, emp_id.upper(), aud_id))
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (emp_id.upper(), init_pw, name_kr, role, emp_id.upper(), aud_id))
+
+    # 지정 관리자 사번(T180476, T180479) role 보장
+    for admin_emp in ("T180476", "T180479"):
+        c.execute("UPDATE users SET role = 'admin' WHERE UPPER(username) = UPPER(?)", (admin_emp,))
+
     conn.commit()
     conn.close()
 
