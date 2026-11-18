@@ -4519,3 +4519,10 @@ body {
     color: #fca5a5;
     font-size: 12px;
 }
+
+/* 접속 즉시 로그인 게이트 잠금 */
+.app-container.auth-locked {
+    filter: blur(12px) brightness(0.45);
+    pointer-events: none;
+    user-select: none;
+}

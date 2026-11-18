@@ -2744,8 +2744,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // UI 업데이트: 로그인 상태에 따른 헤더 및 권한 요소 제어
     function updateAuthUI() {
+        const appContainer = document.querySelector('.app-container');
         if (currentUser) {
             // 로그인 상태
+            if (appContainer) appContainer.classList.remove('auth-locked');
+            if (btnCloseLoginModal) btnCloseLoginModal.style.display = '';
+            if (btnCancelLogin) btnCancelLogin.style.display = '';
             if (authLoggedIn) authLoggedIn.style.display = 'flex';
             if (authLoggedOut) authLoggedOut.style.display = 'none';
             if (sidebarUserCard) sidebarUserCard.style.display = 'flex';
@@ -2768,7 +2772,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 el.style.display = isAdmin ? '' : 'none';
             });
         } else {
-            // 미로그인 (게스트/조회 모드)
+            // 미로그인 (접속 즉시 로그인 필수 게이트)
+            if (appContainer) appContainer.classList.add('auth-locked');
+            if (btnCloseLoginModal) btnCloseLoginModal.style.display = 'none';
+            if (btnCancelLogin) btnCancelLogin.style.display = 'none';
+            if (loginModal) loginModal.classList.add('active');
             if (authLoggedIn) authLoggedIn.style.display = 'none';
             if (authLoggedOut) authLoggedOut.style.display = 'flex';
             if (sidebarUserCard) sidebarUserCard.style.display = 'none';
@@ -2821,8 +2829,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (loginModal) loginModal.classList.remove('active');
                 showToast(`${currentUser.name}님, 환영합니다! (${currentUser.role === 'admin' ? '관리자 권한' : '심사원 권한'})`, 'success');
                 
-                // 로그인 후 현재 탭 갱신 (마이페이지일 경우 로드)
+                // 로그인 후 현재 탭 갱신 및 알림 로드
                 loadTabData();
+                setTimeout(() => loadAndShowAlerts(), 500);
             } else {
                 showToast(data.detail || '로그인 실패: 아이디와 비밀번호를 확인해주세요.', 'error');
             }
@@ -2856,19 +2865,17 @@ document.addEventListener("DOMContentLoaded", () => {
             if (currentTab === 'users' || currentTab === 'mypage') {
                 const dashNav = document.querySelector('[data-tab="dashboard"]');
                 if (dashNav) dashNav.click();
-            } else {
-                loadTabData();
             }
         }
     }
 
     // 모달 이벤트 리스너 바인딩
     if (btnOpenLoginModal) btnOpenLoginModal.addEventListener('click', () => loginModal.classList.add('active'));
-    if (btnCloseLoginModal) btnCloseLoginModal.addEventListener('click', () => loginModal.classList.remove('active'));
-    if (btnCancelLogin) btnCancelLogin.addEventListener('click', () => loginModal.classList.remove('active'));
+    if (btnCloseLoginModal) btnCloseLoginModal.addEventListener('click', () => { if (currentUser) loginModal.classList.remove('active'); });
+    if (btnCancelLogin) btnCancelLogin.addEventListener('click', () => { if (currentUser) loginModal.classList.remove('active'); });
     if (loginModal) {
         loginModal.addEventListener('click', (e) => {
-            if (e.target === loginModal) loginModal.classList.remove('active');
+            if (e.target === loginModal && currentUser) loginModal.classList.remove('active');
         });
     }
 
@@ -4596,10 +4603,12 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     }
 
     // --------------------------------------------------------
-    // 초기 로딩 실행 (인증 확인 후 탭 로드)
+    // 초기 로딩 실행 (인증 확인 후 로그인된 경우에만 탭 로드)
     // --------------------------------------------------------
     checkAuthStatus().then(() => {
-        loadTabData();
-        setTimeout(() => loadAndShowAlerts(), 1200);
+        if (currentUser) {
+            loadTabData();
+            setTimeout(() => loadAndShowAlerts(), 1200);
+        }
     });
 });

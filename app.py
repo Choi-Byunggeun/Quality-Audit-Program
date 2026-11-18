@@ -10,11 +10,18 @@ import uuid
 import secrets
 import io
 import base64
+import hmac
+import hashlib
+import time
 import openpyxl
+import db_adapter
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CHECKLIST_DIR = os.path.join(BASE_DIR, "품질심사 체크리스트")
-os.makedirs(CHECKLIST_DIR, exist_ok=True)
+try:
+    os.makedirs(CHECKLIST_DIR, exist_ok=True)
+except OSError:
+    pass
 DB_PATH = os.path.join(BASE_DIR, "audit.db")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 if not os.path.exists(STATIC_DIR):
@@ -23,13 +30,57 @@ if not os.path.exists(STATIC_DIR):
         STATIC_DIR = alt_static
 PORT = int(os.environ.get("PORT", 8000))
 
-# 메모리 세션 저장소 (token -> user_dict)
+# 서버리스(Vercel) 환경 호환 HMAC-SHA256 무상태 세션 토큰 키
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "tway-audit-planner-secret-2026-v1").encode("utf-8")
+SESSION_TTL_SECONDS = 60 * 60 * 24 * 7  # 7일 유효
+
+# 로컬 호환 메모리 세션 저장소
 ACTIVE_SESSIONS = {}
 
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
+def create_session_token(user_info: dict) -> str:
+    payload = dict(user_info)
+    payload["exp"] = int(time.time()) + SESSION_TTL_SECONDS
+    payload_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    payload_b64 = _b64url_encode(payload_bytes)
+    sig = hmac.new(SESSION_SECRET, payload_b64.encode("ascii"), hashlib.sha256).digest()
+    return f"{payload_b64}.{_b64url_encode(sig)}"
+
+
+def verify_session_token(token: str):
+    if not token:
+        return None
+    if token in ACTIVE_SESSIONS:
+        return ACTIVE_SESSIONS[token]
+    try:
+        parts = token.split(".")
+        if len(parts) != 2:
+            return None
+        payload_b64, sig_b64 = parts
+        expected_sig = hmac.new(SESSION_SECRET, payload_b64.encode("ascii"), hashlib.sha256).digest()
+        provided_sig = _b64url_decode(sig_b64)
+        if not hmac.compare_digest(expected_sig, provided_sig):
+            return None
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+        payload.pop("exp", None)
+        return payload
+    except Exception:
+        return None
+
+
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return db_adapter.get_db_connection(DB_PATH)
 
 
 def _add_months(date_str, months):
@@ -200,10 +251,11 @@ def _ensure_findings_schema():
     conn.commit()
     conn.close()
 
-_ensure_auditors_table()
-_ensure_targets_schema()
-_ensure_users_table()
-_ensure_findings_schema()
+if not db_adapter.is_turso_enabled() and not os.environ.get("VERCEL"):
+    _ensure_auditors_table()
+    _ensure_targets_schema()
+    _ensure_users_table()
+    _ensure_findings_schema()
 
 # 계획표(2027년 정비부문 품질심사 계획표 R.0) 기준 표준 점검표 카탈로그 매핑
 STANDARD_CHECKLIST_CATALOG = [
@@ -436,8 +488,22 @@ def sync_checklist_templates_from_excel():
                 imported.append(res)
     return imported
 
-_ensure_checklists_schema()
-sync_checklist_templates_from_excel()
+def resolve_excel_path(stored_path: str) -> str:
+    """Windows/Linux 경로 차이를 보정해 실제 존재하는 점검표 엑셀 경로 반환"""
+    if stored_path and os.path.exists(stored_path):
+        return stored_path
+    if stored_path:
+        fname = os.path.basename(stored_path.replace("\\", "/"))
+        for d in (CHECKLIST_DIR, BASE_DIR):
+            cand = os.path.join(d, fname)
+            if os.path.exists(cand):
+                return cand
+    return ""
+
+
+if not db_adapter.is_turso_enabled() and not os.environ.get("VERCEL"):
+    _ensure_checklists_schema()
+    sync_checklist_templates_from_excel()
 
 def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end_year: int = 2030):
     conn = get_db_connection()
@@ -689,9 +755,14 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                 if 'session_token=' in cookie:
                     token = cookie.split('session_token=')[1].strip()
                     break
-        if token and token in ACTIVE_SESSIONS:
-            return ACTIVE_SESSIONS[token]
-        return None
+        return verify_session_token(token)
+
+    def require_auth(self):
+        user = self.get_current_user()
+        if not user:
+            self.send_json_response({"detail": "로그인이 필요합니다."}, 401)
+            return None
+        return user
 
     def serve_static_file(self, file_path, content_type):
         if os.path.exists(file_path) and os.path.isfile(file_path):
@@ -734,8 +805,20 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             self.serve_static_file(file_path, content_type)
             return
 
-        # 2. REST API endpoints
-        elif path == "/api/targets":
+        if path == "/api/health":
+            self.send_json_response({
+                "status": "ok",
+                "turso_enabled": db_adapter.is_turso_enabled(),
+                "vercel": bool(os.environ.get("VERCEL"))
+            })
+            return
+
+        # 2. REST API endpoints (접속 즉시 로그인 필수: /api/auth/me 제외 인증 필요)
+        if path.startswith("/api/") and path not in ("/api/auth/me", "/api/health"):
+            if not self.require_auth():
+                return
+
+        if path == "/api/targets":
             conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM audit_targets ORDER BY id ASC")
@@ -1142,8 +1225,9 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             templates = []
             for r in c.fetchall():
                 d = dict(r)
-                d["has_excel"] = bool(d.get("excel_path") and os.path.exists(d["excel_path"]))
-                d["excel_filename"] = os.path.basename(d["excel_path"]) if d.get("excel_path") else ""
+                resolved_path = resolve_excel_path(d.get("excel_path") or "")
+                d["has_excel"] = bool(resolved_path)
+                d["excel_filename"] = os.path.basename(resolved_path) if resolved_path else (os.path.basename((d.get("excel_path") or "").replace("\\", "/")) if d.get("excel_path") else "")
                 templates.append(d)
             conn.close()
             self.send_json_response(templates)
@@ -1345,19 +1429,19 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             items = [dict(r) for r in c.fetchall()]
 
             # 만약 해당 템플릿에 직접 등록된 문항이 없어 기본 양식(TW-MNT-005)으로 작성된 경우 폴백
-            excel_path = sess_dict.get("tpl_excel_path") or ""
-            if not items or not excel_path or not os.path.exists(excel_path):
+            excel_path = resolve_excel_path(sess_dict.get("tpl_excel_path") or "")
+            if not items or not excel_path:
                 c.execute("SELECT * FROM checklist_templates WHERE code = 'TW-MNT-005' LIMIT 1")
                 fb = c.fetchone()
                 if fb:
-                    if not excel_path or not os.path.exists(excel_path):
-                        excel_path = fb["excel_path"]
+                    if not excel_path:
+                        excel_path = resolve_excel_path(fb["excel_path"] or "")
                     if not items:
                         c.execute("SELECT * FROM checklist_template_items WHERE template_id = ? ORDER BY excel_row ASC", (fb["id"],))
                         items = [dict(r) for r in c.fetchall()]
             conn.close()
 
-            if not excel_path or not os.path.exists(excel_path):
+            if not excel_path:
                 self.send_json_response({"detail": "원본 점검표 엑셀 파일을 찾을 수 없습니다."}, 404)
                 return
 
@@ -1449,9 +1533,14 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
         parsed_url = urllib.parse.urlparse(self.path)
         path = parsed_url.path
         
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
         data = json.loads(post_data.decode('utf-8'))
+
+        # 접속 즉시 로그인 필수: 로그인/로그아웃 외 모든 POST API 인증 요구
+        if path.startswith("/api/") and path not in ("/api/auth/login", "/api/auth/logout"):
+            if not self.require_auth():
+                return
 
         # 4. 수동 입력 시 인터벌 재계산 (동적 롤링 로직)
         if path == "/api/history/update":
@@ -1757,12 +1846,16 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                 "qualification": user_row["qualification"] or "",
                 "cert_number": user_row["cert_number"] or ""
             }
-            token = secrets.token_hex(24)
+            token = create_session_token(user_info)
             ACTIVE_SESSIONS[token] = user_info
+            is_https = (self.headers.get("X-Forwarded-Proto", "").lower() == "https")
+            cookie_flags = f"session_token={token}; Path=/; Max-Age={SESSION_TTL_SECONDS}; HttpOnly; SameSite=Lax"
+            if is_https:
+                cookie_flags += "; Secure"
             
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Set-Cookie', f'session_token={token}; Path=/; HttpOnly; SameSite=Lax')
+            self.send_header('Set-Cookie', cookie_flags)
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({
@@ -2172,8 +2265,14 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             save_path = os.path.join(CHECKLIST_DIR, filename)
             try:
                 raw_bytes = base64.b64decode(b64_content)
-                with open(save_path, "wb") as f:
-                    f.write(raw_bytes)
+                try:
+                    with open(save_path, "wb") as f:
+                        f.write(raw_bytes)
+                except OSError:
+                    import tempfile
+                    save_path = os.path.join(tempfile.gettempdir(), filename)
+                    with open(save_path, "wb") as f:
+                        f.write(raw_bytes)
                 parsed = parse_and_import_checklist_excel(save_path, override_code=override_code, override_category=override_cat)
                 if not parsed:
                     self.send_json_response({"detail": "엑셀 파일에서 CheckList 시트(Requirement 컬럼)를 찾지 못했습니다. 표준 점검표 양식인지 확인해 주세요."}, 400)
