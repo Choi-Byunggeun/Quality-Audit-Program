@@ -519,51 +519,17 @@ if not db_adapter.is_turso_enabled() and not os.environ.get("VERCEL"):
     _ensure_checklists_schema()
     sync_checklist_templates_from_excel()
 
-def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end_year: int = 2030):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT * FROM audit_targets WHERE id = ?", (target_id,))
-    target = cursor.fetchone()
-    if not target:
-        conn.close()
-        return {}
-        
+def _compute_schedule_for_target(target, last_audit, events, existing_histories, start_year: int = 2026, end_year: int = 2030):
+    """단일 대상의 다년도 심사 계획을 메모리 데이터만으로 계산 (N+1 쿼리 제거)"""
+    target_id = target["id"]
     op_status = target["operation_status"]
     base_interval = target["base_interval"] or 2
-    
-    # 3. 비운항 상태 로직: 비운항인 경우 계획을 편성/카운팅하지 않음
+
     if op_status == "비운항":
-        conn.close()
         return {year: None for year in range(start_year, end_year + 1)}
-        
-    # 과거 최근 심사 이력 조회
-    cursor.execute("""
-        SELECT year, audit_type, scheduled_date, auditor, status FROM audit_history 
-        WHERE target_id = ? AND year < ?
-        ORDER BY year DESC LIMIT 1
-    """, (target_id, start_year))
-    last_audit = cursor.fetchone()
-    
-    # 이벤트 조회
-    cursor.execute("""
-        SELECT event_year, detail FROM schedule_events
-        WHERE target_id = ? AND event_year BETWEEN ? AND ?
-    """, (target_id, start_year, end_year))
-    events = {r["event_year"]: r["detail"] for r in cursor.fetchall()}
-    
-    # 현재 연도 범위 내 DB에 저장된 심사 계획/이력
-    cursor.execute("""
-        SELECT * FROM audit_history
-        WHERE target_id = ? AND year BETWEEN ? AND ?
-    """, (target_id, start_year, end_year))
-    existing_histories = {r["year"]: dict(r) for r in cursor.fetchall()}
-    
-    conn.close()
-    
+
     schedule = {}
-    
-    # 2. 국내/공항 STATION 및 내부팀 항목 (base_interval == 1): 간접심사 없이 매년 1회 직접심사(●)
+
     if base_interval == 1:
         ref_month = 6
         ref_auditor = ""
@@ -615,7 +581,6 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                 }
         return schedule
 
-    # 1 & 4. 일반 항목 (base_interval == 2): 2년 주기 교차 편성 및 수동 입력 동적 롤링 (Reset & Roll-over)
     if last_audit:
         ref_year = last_audit["year"]
         ref_type = last_audit["audit_type"]
@@ -628,9 +593,8 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                 ref_month = 6
     else:
         ref_year, ref_type, ref_month, ref_auditor = None, None, 6, ""
-        
+
     for year in range(start_year, end_year + 1):
-        # 4.1 수동 입력된 DB 기록이 있는 경우 -> 해당 입력 시점을 새 기준(Anchor)으로 롤링 리셋
         if year in existing_histories:
             db_record = existing_histories[year]
             a_type = db_record["audit_type"] or ("간접" if ref_type == "직접" else "직접")
@@ -658,13 +622,11 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
             ref_year = year
             ref_type = a_type
             continue
-            
-        # 4.2 신규 기종/지점 이벤트 등록이 있는 경우 -> 간접심사 배정 및 롤링 리셋
+
         if year in events:
             audit_type = "간접"
             detail = events[year]
             scheduled_date = f"{year}-{ref_month:02d}-01"
-            
             schedule[year] = {
                 "id": None,
                 "target_id": target_id,
@@ -682,14 +644,11 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
             ref_type = "간접"
             continue
 
-        # 4.3 자동 인터벌 계산 (2년 교차 롤링 - 이전 수행 월 유지)
         if ref_year is not None:
             diff = year - ref_year
             if diff == 2:
                 audit_type = "간접" if ref_type == "직접" else "직접"
                 symbol = "◎" if audit_type == "간접" else "●"
-                scheduled_date = f"{year}-{ref_month:02d}-01"
-                
                 schedule[year] = {
                     "id": None,
                     "target_id": target_id,
@@ -699,19 +658,17 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                     "is_event": False,
                     "event_detail": None,
                     "remarks": f"2년 주기 정기 심사 ({ref_month}월)",
-                    "scheduled_date": scheduled_date,
+                    "scheduled_date": f"{year}-{ref_month:02d}-01",
                     "auditor": ref_auditor,
                     "symbol": symbol
                 }
                 ref_year = year
                 ref_type = audit_type
             elif diff > 2 and diff % 2 == 0:
-                # 2년 단위 주기 유지
                 steps = diff // 2
                 cur_type = ref_type
                 for _ in range(steps):
                     cur_type = "간접" if cur_type == "직접" else "직접"
-                
                 audit_type = cur_type
                 symbol = "◎" if audit_type == "간접" else "●"
                 schedule[year] = {
@@ -733,8 +690,97 @@ def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end
                 schedule[year] = None
         else:
             schedule[year] = None
-                
+
     return schedule
+
+
+def generate_all_schedules_bulk(start_year: int = 2026, end_year: int = 2030):
+    """전체 대상의 다년도 스케줄을 단 3번의 DB 조회로 일괄 계산"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM audit_targets ORDER BY id ASC")
+    targets = [dict(r) for r in cursor.fetchall()]
+
+    cursor.execute("""
+        SELECT * FROM audit_history
+        WHERE year <= ?
+        ORDER BY target_id ASC, year DESC
+    """, (end_year,))
+    all_histories = [dict(r) for r in cursor.fetchall()]
+
+    cursor.execute("""
+        SELECT target_id, event_year, detail FROM schedule_events
+        WHERE event_year BETWEEN ? AND ?
+    """, (start_year, end_year))
+    all_events = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    last_audit_by_tid = {}
+    existing_by_tid = {}
+    for h in all_histories:
+        tid = h["target_id"]
+        yr = h["year"]
+        if yr < start_year:
+            if tid not in last_audit_by_tid:
+                last_audit_by_tid[tid] = h
+        else:
+            existing_by_tid.setdefault(tid, {})[yr] = h
+
+    events_by_tid = {}
+    for ev in all_events:
+        events_by_tid.setdefault(ev["target_id"], {})[ev["event_year"]] = ev["detail"]
+
+    schedules_by_tid = {}
+    for t in targets:
+        tid = t["id"]
+        schedules_by_tid[tid] = _compute_schedule_for_target(
+            t,
+            last_audit_by_tid.get(tid),
+            events_by_tid.get(tid, {}),
+            existing_by_tid.get(tid, {}),
+            start_year,
+            end_year
+        )
+    return targets, schedules_by_tid
+
+
+def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end_year: int = 2030):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM audit_targets WHERE id = ?", (target_id,))
+    target = cursor.fetchone()
+    if not target:
+        conn.close()
+        return {}
+    target_dict = dict(target)
+
+    if target_dict["operation_status"] == "비운항":
+        conn.close()
+        return {year: None for year in range(start_year, end_year + 1)}
+
+    cursor.execute("""
+        SELECT year, audit_type, scheduled_date, auditor, status FROM audit_history
+        WHERE target_id = ? AND year < ?
+        ORDER BY year DESC LIMIT 1
+    """, (target_id, start_year))
+    last_row = cursor.fetchone()
+    last_audit = dict(last_row) if last_row else None
+
+    cursor.execute("""
+        SELECT event_year, detail FROM schedule_events
+        WHERE target_id = ? AND event_year BETWEEN ? AND ?
+    """, (target_id, start_year, end_year))
+    events = {r["event_year"]: r["detail"] for r in cursor.fetchall()}
+
+    cursor.execute("""
+        SELECT * FROM audit_history
+        WHERE target_id = ? AND year BETWEEN ? AND ?
+    """, (target_id, start_year, end_year))
+    existing_histories = {r["year"]: dict(r) for r in cursor.fetchall()}
+    conn.close()
+
+    return _compute_schedule_for_target(target_dict, last_audit, events, existing_histories, start_year, end_year)
 
 class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
     
@@ -936,13 +982,9 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
 
         elif path == "/api/dashboard":
             year = int(query_params.get("year", [2026])[0])
-            
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM audit_targets")
-            targets = cursor.fetchall()
-            conn.close()
-            
+            sched_start = 2026 if year >= 2026 else year
+            targets, schedules_by_tid = generate_all_schedules_bulk(start_year=sched_start, end_year=year)
+
             current_month = datetime.datetime.now().month
             total_count = 0
             direct_count = 0
@@ -951,9 +993,7 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             year_audit_list = []
             
             for t in targets:
-                # 비운항 제외 스케줄 생성 (2026년 이후는 2026년 기준 롤링, 2025년 이전은 실제 DB 이력만 반영)
-                sched_start = 2026 if year >= 2026 else year
-                scheds = generate_schedule_for_target_api(t["id"], start_year=sched_start, end_year=year)
+                scheds = schedules_by_tid.get(t["id"], {})
                 val = scheds.get(year)
                 if year < 2026 and val and val.get("id") is None:
                     val = None
@@ -1003,18 +1043,13 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
 
         elif path == "/api/calendar":
             year = int(query_params.get("year", [2026])[0])
-            
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM audit_targets")
-            targets = cursor.fetchall()
-            conn.close()
-            
+            sched_start = 2026 if year >= 2026 else year
+            targets, schedules_by_tid = generate_all_schedules_bulk(start_year=sched_start, end_year=year)
+
             calendar_data = {m: [] for m in range(1, 13)}
             
             for t in targets:
-                sched_start = 2026 if year >= 2026 else year
-                scheds = generate_schedule_for_target_api(t["id"], start_year=sched_start, end_year=year)
+                scheds = schedules_by_tid.get(t["id"], {})
                 val = scheds.get(year)
                 if year < 2026 and val and val.get("id") is None:
                     val = None
@@ -1061,18 +1096,12 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
         elif path == "/api/multi_year_schedule":
             start_year = int(query_params.get("start_year", [2026])[0])
             end_year = int(query_params.get("end_year", [2030])[0])
-            
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM audit_targets ORDER BY id ASC")
-            targets = [dict(r) for r in cursor.fetchall()]
-            conn.close()
+            targets, schedules_by_tid = generate_all_schedules_bulk(start_year=start_year, end_year=end_year)
             
             result = []
             for t in targets:
-                scheds = generate_schedule_for_target_api(t["id"], start_year=start_year, end_year=end_year)
                 target_item = dict(t)
-                target_item["schedule"] = scheds
+                target_item["schedule"] = schedules_by_tid.get(t["id"], {})
                 result.append(target_item)
                 
             self.send_json_response(result)
@@ -1081,18 +1110,13 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
         elif path == "/api/list":
             year = int(query_params.get("year", [2026])[0])
             month = int(query_params.get("month", [8])[0])
-            
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM audit_targets")
-            targets = cursor.fetchall()
-            conn.close()
+            sched_start = 2026 if year >= 2026 else year
+            targets, schedules_by_tid = generate_all_schedules_bulk(start_year=sched_start, end_year=year)
             
             filtered_list = []
             
             for t in targets:
-                sched_start = 2026 if year >= 2026 else year
-                scheds = generate_schedule_for_target_api(t["id"], start_year=sched_start, end_year=year)
+                scheds = schedules_by_tid.get(t["id"], {})
                 val = scheds.get(year)
                 if year < 2026 and val and val.get("id") is None:
                     val = None

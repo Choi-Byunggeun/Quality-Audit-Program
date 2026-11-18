@@ -674,6 +674,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 attributionControl: false,
                 worldCopyJump: true
             });
+            setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 250);
 
             const initialTile = mapTheme === 'dark' ? darkTileUrl : lightTileUrl;
             leafletTileLayer = L.tileLayer(initialTile, {
