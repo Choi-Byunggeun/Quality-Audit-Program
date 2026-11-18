@@ -2298,6 +2298,81 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
+class _WSGIAdapter(BuiltinWebServer):
+    """Vercel 등 WSGI 서버리스 환경에서 BuiltinWebServer를 직접 실행하기 위한 어댑터"""
+
+    def __init__(self, environ):
+        from email.message import Message
+        self.command = environ.get("REQUEST_METHOD", "GET").upper()
+        path_info = environ.get("PATH_INFO", "/")
+        qs = environ.get("QUERY_STRING", "")
+        self.path = f"{path_info}?{qs}" if qs else path_info
+
+        headers = Message()
+        for k, v in environ.items():
+            if k.startswith("HTTP_"):
+                hname = k[5:].replace("_", "-").title()
+                headers[hname] = v
+            elif k == "CONTENT_TYPE" and v:
+                headers["Content-Type"] = v
+            elif k == "CONTENT_LENGTH" and v:
+                headers["Content-Length"] = v
+        self.headers = headers
+
+        try:
+            clen = int(environ.get("CONTENT_LENGTH") or 0)
+        except ValueError:
+            clen = 0
+        body = environ["wsgi.input"].read(clen) if clen > 0 and "wsgi.input" in environ else b""
+        self.rfile = io.BytesIO(body)
+        self.wfile = io.BytesIO()
+        self._status_code = 200
+        self._status_msg = "OK"
+        self._resp_headers = []
+
+    def send_response(self, code, message=None):
+        self._status_code = int(code)
+        if message:
+            self._status_msg = str(message)
+        else:
+            try:
+                self._status_msg = http.HTTPStatus(self._status_code).phrase
+            except Exception:
+                self._status_msg = "OK"
+
+    def send_header(self, keyword, value):
+        self._resp_headers.append((str(keyword), str(value)))
+
+    def end_headers(self):
+        pass
+
+    def send_error(self, code, message=None, explain=None):
+        self.send_response(code, message)
+        self._resp_headers = [("Content-Type", "text/plain; charset=utf-8")]
+        self.wfile = io.BytesIO((message or self._status_msg).encode("utf-8"))
+
+
+def wsgi_app(environ, start_response):
+    handler = _WSGIAdapter(environ)
+    method = handler.command
+    if method == "GET":
+        handler.do_GET()
+    elif method == "POST":
+        handler.do_POST()
+    elif method == "OPTIONS":
+        handler.do_OPTIONS()
+    else:
+        handler.send_error(405, "Method Not Allowed")
+
+    status_str = f"{handler._status_code} {handler._status_msg}"
+    start_response(status_str, handler._resp_headers)
+    return [handler.wfile.getvalue()]
+
+
+# Vercel Python Runtime 엔트리포인트 (app)
+app = wsgi_app
+
+
 def run(server_class=http.server.ThreadingHTTPServer, handler_class=BuiltinWebServer):
     server_address = ('', PORT)
     httpd = server_class(server_address, handler_class)
