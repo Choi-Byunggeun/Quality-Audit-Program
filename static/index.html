@@ -1164,13 +1164,41 @@
 
             <!-- TAB 7: USERS MANAGEMENT (관리자 전용 계정/권한 관리) -->
             <section id="tab-users" class="tab-pane">
+                <!-- 승인 대기 목록 카드 (대기자가 있을 때 활성화) -->
+                <div class="section-card" id="pending-users-card" style="display:none; border:1px solid rgba(245, 158, 11, 0.4); background:rgba(245, 158, 11, 0.04); margin-bottom:20px;">
+                    <div class="section-card-header">
+                        <div>
+                            <h2 style="color:#fbbf24;"><i class="fa-solid fa-user-clock"></i> 회원가입 승인 대기 명단</h2>
+                            <p class="section-desc">일반 심사원 또는 사용자가 가입 신청한 계정입니다. 승인 시 즉시 시스템 로그인이 가능해집니다.</p>
+                        </div>
+                        <span class="badge" id="pending-users-badge" style="background:#f59e0b; color:#fff; font-weight:700; font-size:12px;">대기 0건</span>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>신청 사번</th>
+                                    <th>성명</th>
+                                    <th>소속 부서</th>
+                                    <th>신청일시</th>
+                                    <th style="text-align:center;">승인 처리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pending-users-table-body">
+                                <!-- 동적 렌더링 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div class="section-card">
                     <div class="section-card-header">
                         <div>
                             <h2><i class="fa-solid fa-users-gear"></i> 계정 및 권한 관리</h2>
-                            <p class="section-desc">시스템 관리자 및 심사원 로그인 계정을 조회하고 비밀번호를 초기화할 수 있습니다.</p>
+                            <p class="section-desc">시스템 관리자 및 심사원 로그인 계정을 조회하고 비밀번호를 초기화하거나 권한을 설정할 수 있습니다.</p>
                         </div>
                         <div class="table-actions">
+                            <span class="badge" id="pending-summary-badge" style="display:none; background:#f59e0b; color:#fff;">대기 0건</span>
                             <span class="badge badge-accent" id="user-count-badge">총 0명</span>
                             <button class="btn btn-primary btn-sm" id="btn-open-user-create-modal"><i class="fa-solid fa-user-plus"></i> 신규 계정 등록</button>
                             <button class="btn btn-secondary btn-sm" id="btn-refresh-users"><i class="fa-solid fa-rotate"></i> 새로고침</button>
@@ -1186,6 +1214,7 @@
                                     <th>사용자명</th>
                                     <th>소속 부서</th>
                                     <th>권한</th>
+                                    <th>상태</th>
                                     <th>자격 정보</th>
                                     <th>등록일</th>
                                     <th style="text-align:center;">관리</th>
@@ -1603,6 +1632,71 @@
                     <button type="button" class="btn btn-secondary" id="btn-cancel-login">닫기</button>
                     <button type="submit" class="btn btn-primary" id="btn-submit-login">
                         <i class="fa-solid fa-right-to-bracket"></i> 로그인
+                    </button>
+                </div>
+
+                <!-- 회원가입 신청 바로가기 -->
+                <div class="auth-switch-box" style="margin-top:16px; text-align:center; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08);">
+                    <span style="font-size:12.5px; color:var(--text-secondary);">계정이 없으신가요?</span>
+                    <button type="button" class="btn-text-link" id="btn-switch-to-register" style="margin-left:6px; font-weight:600; color:#38bdf8; background:none; border:none; cursor:pointer; text-decoration:underline;">
+                        <i class="fa-solid fa-user-plus"></i> 회원가입 신청
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Register Modal (회원가입 신청) -->
+    <div class="modal" id="modal-register">
+        <div class="modal-content modal-auth">
+            <div class="modal-header">
+                <div class="auth-modal-title-wrap">
+                    <div class="auth-icon-badge" style="background:rgba(56, 189, 248, 0.15); color:#38bdf8;">
+                        <i class="fa-solid fa-user-plus"></i>
+                    </div>
+                    <div>
+                        <h2>품질심사 시스템 회원가입</h2>
+                        <p class="modal-sub">사번과 기본 정보를 입력하여 계정을 신청하세요.</p>
+                    </div>
+                </div>
+                <button class="close-btn" id="btn-close-register-modal">&times;</button>
+            </div>
+            <form id="register-form">
+                <div class="login-instruction-card" style="background:rgba(245, 158, 11, 0.08); border-color:rgba(245, 158, 11, 0.3);">
+                    <div class="inst-header" style="color:#fbbf24;">
+                        <i class="fa-solid fa-shield-halved"></i> <strong>가입 및 승인 정책 안내</strong>
+                    </div>
+                    <div style="font-size:12px; color:var(--text-secondary); line-height:1.5;">
+                        • 사번으로 신청하시면 <strong>관리자 승인</strong> 후 로그인하여 이용할 수 있습니다.<br>
+                        • 초기 비밀번호는 <strong>사번 뒤 6자리 숫자</strong>(또는 원하는 6자리)로 설정해주세요.
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top:14px;">
+                    <label for="reg-username"><i class="fa-solid fa-id-card"></i> 사번 (아이디) <span style="color:#ef4444;">*</span></label>
+                    <input type="text" id="reg-username" class="input-field" placeholder="예: t260001 (대소문자 무관)" required>
+                </div>
+                <div class="form-group">
+                    <label for="reg-name"><i class="fa-solid fa-user"></i> 성명 <span style="color:#ef4444;">*</span></label>
+                    <input type="text" id="reg-name" class="input-field" placeholder="예: 홍길동" required>
+                </div>
+                <div class="form-group">
+                    <label for="reg-dept"><i class="fa-solid fa-building"></i> 소속 부서</label>
+                    <input type="text" id="reg-dept" class="input-field" placeholder="예: 정비품질보증팀 (선택)">
+                </div>
+                <div class="form-group">
+                    <label for="reg-password"><i class="fa-solid fa-lock"></i> 사용할 비밀번호 <span style="color:#ef4444;">*</span></label>
+                    <input type="password" id="reg-password" class="input-field" placeholder="숫자 6자리 권장 (최소 4자 이상)" required minlength="4">
+                </div>
+                <div class="form-group">
+                    <label for="reg-password-confirm"><i class="fa-solid fa-lock-open"></i> 비밀번호 확인 <span style="color:#ef4444;">*</span></label>
+                    <input type="password" id="reg-password-confirm" class="input-field" placeholder="비밀번호를 한 번 더 입력하세요" required minlength="4">
+                </div>
+
+                <div class="form-actions" style="margin-top:20px;">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-register">로그인 화면으로</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-register">
+                        <i class="fa-solid fa-paper-plane"></i> 가입 신청하기
                     </button>
                 </div>
             </form>

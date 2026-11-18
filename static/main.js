@@ -2907,6 +2907,99 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (btnLogout) btnLogout.addEventListener('click', doLogout);
 
+    // ========================================================
+    // 회원가입 모달 (Register Modal) 이벤트 리스너
+    // ========================================================
+    const btnSwitchToRegister = document.getElementById('btn-switch-to-register');
+    const modalRegister = document.getElementById('modal-register');
+    const btnCloseRegister = document.getElementById('btn-close-register-modal');
+    const btnCancelRegister = document.getElementById('btn-cancel-register');
+    const registerForm = document.getElementById('register-form');
+    const inputRegUsername = document.getElementById('reg-username');
+    const inputRegPassword = document.getElementById('reg-password');
+
+    if (btnSwitchToRegister) {
+        btnSwitchToRegister.addEventListener('click', () => {
+            if (loginModal) loginModal.classList.remove('active');
+            if (registerForm) registerForm.reset();
+            if (modalRegister) modalRegister.classList.add('active');
+        });
+    }
+
+    if (btnCloseRegister) {
+        btnCloseRegister.addEventListener('click', () => {
+            if (modalRegister) modalRegister.classList.remove('active');
+            if (loginModal) loginModal.classList.add('active');
+        });
+    }
+
+    if (btnCancelRegister) {
+        btnCancelRegister.addEventListener('click', () => {
+            if (modalRegister) modalRegister.classList.remove('active');
+            if (loginModal) loginModal.classList.add('active');
+        });
+    }
+
+    if (modalRegister) {
+        modalRegister.addEventListener('click', (e) => {
+            if (e.target === modalRegister) {
+                modalRegister.classList.remove('active');
+                if (!currentUser && loginModal) loginModal.classList.add('active');
+            }
+        });
+    }
+
+    if (inputRegUsername) {
+        inputRegUsername.addEventListener('input', (e) => {
+            const upper = e.target.value.toUpperCase();
+            if (e.target.value !== upper) e.target.value = upper;
+            const digits = upper.replace(/[^0-9]/g, '');
+            if (inputRegPassword && !inputRegPassword.value) {
+                if (digits.length >= 6) {
+                    inputRegPassword.placeholder = `예: ${digits.slice(-6)} (사번 6자리 권장)`;
+                }
+            }
+        });
+    }
+
+    if (registerForm) {
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = inputRegUsername.value.trim().toUpperCase();
+            const name = document.getElementById('reg-name').value.trim();
+            const department = document.getElementById('reg-dept').value.trim();
+            const password = inputRegPassword.value.trim();
+            const confirmPw = document.getElementById('reg-password-confirm').value.trim();
+
+            if (password !== confirmPw) {
+                showToast('비밀번호와 비밀번호 확인이 일치하지 않습니다.', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, name, department, password })
+                });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    showToast(data.message, 'success');
+                    if (modalRegister) modalRegister.classList.remove('active');
+                    if (loginModal) {
+                        loginModal.classList.add('active');
+                        const loginUser = document.getElementById('login-username');
+                        if (loginUser) loginUser.value = username;
+                    }
+                } else {
+                    showToast(data.detail || '가입 신청 중 오류가 발생했습니다.', 'error');
+                }
+            } catch (err) {
+                showToast('서버와의 통신에 실패했습니다.', 'error');
+            }
+        });
+    }
+
     // 비밀번호 변경 모달 리스너
     if (btnOpenChangePw) btnOpenChangePw.addEventListener('click', () => {
         if (changePwForm) changePwForm.reset();
@@ -3112,41 +3205,106 @@ document.addEventListener("DOMContentLoaded", () => {
         const users = await apiFetch('/api/users');
         const tbody = document.getElementById('users-table-body');
         const badge = document.getElementById('user-count-badge');
+        const pendingBadge = document.getElementById('pending-summary-badge');
+        const pendingCard = document.getElementById('pending-users-card');
+        const pendingTbody = document.getElementById('pending-users-table-body');
+        const pendingCardBadge = document.getElementById('pending-users-badge');
         if (!tbody) return;
 
         tbody.innerHTML = '';
+        if (pendingTbody) pendingTbody.innerHTML = '';
+
         if (!users) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4">계정 목록을 불러올 수 없습니다.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4">계정 목록을 불러올 수 없습니다.</td></tr>';
             return;
         }
 
         if (badge) badge.textContent = `총 ${users.length}명`;
 
+        // 1. 승인 대기 명단 처리
+        const pendingUsers = users.filter(u => u.status === 'pending');
+        if (pendingBadge) {
+            if (pendingUsers.length > 0) {
+                pendingBadge.style.display = 'inline-block';
+                pendingBadge.textContent = `승인 대기 ${pendingUsers.length}건`;
+            } else {
+                pendingBadge.style.display = 'none';
+            }
+        }
+
+        if (pendingCard) {
+            if (pendingUsers.length > 0) {
+                pendingCard.style.display = 'block';
+                if (pendingCardBadge) pendingCardBadge.textContent = `대기 ${pendingUsers.length}건`;
+                if (pendingTbody) {
+                    pendingUsers.forEach(pu => {
+                        const ptr = document.createElement('tr');
+                        ptr.innerHTML = `
+                            <td><code style="font-weight:700; color:#fbbf24; font-size:13px;">${pu.username}</code></td>
+                            <td><strong>${pu.name}</strong></td>
+                            <td>${pu.department || '-'}</td>
+                            <td><small style="color:var(--text-secondary);">${pu.created_at || '-'}</small></td>
+                            <td style="text-align:center;">
+                                <div style="display:inline-flex; gap:6px;">
+                                    <button class="btn btn-primary btn-sm" onclick="approveUserAccount(${pu.id}, '${pu.name}', '${pu.username}')" style="background:#10b981; border-color:#059669;">
+                                        <i class="fa-solid fa-check"></i> 가입 승인
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" onclick="rejectUserAccount(${pu.id}, '${pu.name}', '${pu.username}')">
+                                        <i class="fa-solid fa-xmark"></i> 반려
+                                    </button>
+                                </div>
+                            </td>
+                        `;
+                        pendingTbody.appendChild(ptr);
+                    });
+                }
+            } else {
+                pendingCard.style.display = 'none';
+            }
+        }
+
+        // 2. 전체 계정 목록 렌더링
         users.forEach((user, idx) => {
             const tr = document.createElement('tr');
             const isAdmin = user.role === 'admin';
+            const isPending = user.status === 'pending';
             const isSelf = currentUser && (currentUser.id === user.id);
+
+            const statusBadge = isPending
+                ? `<span class="badge" style="background:#f59e0b; color:#fff; font-weight:700; font-size:11px;"><i class="fa-solid fa-clock"></i> 승인 대기</span>`
+                : `<span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-weight:600; font-size:11px;"><i class="fa-solid fa-check"></i> 정상 승인</span>`;
+
             tr.innerHTML = `
                 <td>${idx + 1}</td>
                 <td><code style="font-weight:700; color:var(--text-primary); font-size:13px;">${user.username}</code></td>
                 <td><strong>${user.name}</strong></td>
                 <td>${user.department || '-'}</td>
                 <td><span class="role-chip ${isAdmin ? 'admin' : 'user'}">${isAdmin ? '시스템 관리자' : '일반 심사원'}</span></td>
+                <td>${statusBadge}</td>
                 <td><small>${user.qualification || user.cert_number || '-'}</small></td>
                 <td><small style="color:var(--text-secondary);">${user.created_at || '-'}</small></td>
                 <td style="text-align:center;">
                     <div style="display:inline-flex; gap:6px;">
-                        <button class="btn btn-secondary btn-sm" onclick="resetUserPassword(${user.id}, '${user.name}', '${user.username}')" title="비밀번호 변경/초기화">
-                            <i class="fa-solid fa-key"></i> 비밀번호 변경
-                        </button>
-                        ${isSelf ? `
-                            <button class="btn btn-secondary btn-sm" disabled style="opacity:0.4; cursor:not-allowed;" title="본인 계정은 삭제할 수 없습니다.">
-                                <i class="fa-solid fa-trash"></i> 삭제
+                        ${isPending ? `
+                            <button class="btn btn-primary btn-sm" onclick="approveUserAccount(${user.id}, '${user.name}', '${user.username}')" style="background:#10b981; border-color:#059669;" title="가입 승인">
+                                <i class="fa-solid fa-check"></i> 승인
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="rejectUserAccount(${user.id}, '${user.name}', '${user.username}')" title="가입 신청 반려">
+                                <i class="fa-solid fa-xmark"></i> 반려
                             </button>
                         ` : `
-                            <button class="btn btn-outline-danger btn-sm" onclick="deleteUserAccount(${user.id}, '${user.name}', '${user.username}')" title="계정 영구 삭제">
-                                <i class="fa-solid fa-trash"></i> 삭제
+                            <button class="btn btn-secondary btn-sm" onclick="resetUserPassword(${user.id}, '${user.name}', '${user.username}')" title="비밀번호 변경/초기화">
+                                <i class="fa-solid fa-key"></i> 비밀번호 변경
                             </button>
+                            ${isSelf ? `
+                                <button class="btn btn-secondary btn-sm" disabled style="opacity:0.4; cursor:not-allowed;" title="본인 계정은 삭제할 수 없습니다.">
+                                    <i class="fa-solid fa-trash"></i> 삭제
+                                </button>
+                            ` : `
+                                <button class="btn btn-outline-danger btn-sm" onclick="deleteUserAccount(${user.id}, '${user.name}', '${user.username}')" title="계정 영구 삭제">
+                                    <i class="fa-solid fa-trash"></i> 삭제
+                                </button>
+                            `}
                         `}
                     </div>
                 </td>
@@ -3154,6 +3312,38 @@ document.addEventListener("DOMContentLoaded", () => {
             tbody.appendChild(tr);
         });
     }
+
+    // 관리자: 회원가입 신청 승인
+    window.approveUserAccount = async function(userId, name, username) {
+        if (!confirm(`'${name} (${username})' 님의 가입 신청을 승인하시겠습니까?\n승인 시 일반 심사원 권한으로 시스템 로그인이 가능해집니다.`)) {
+            return;
+        }
+
+        const res = await apiFetch('/api/users/approve', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: userId, role: 'user' })
+        });
+        if (res && res.status === 'success') {
+            showToast(res.message, 'success');
+            loadUsersTable();
+        }
+    };
+
+    // 관리자: 회원가입 신청 반려
+    window.rejectUserAccount = async function(userId, name, username) {
+        if (!confirm(`정말로 '${name} (${username})' 님의 가입 신청을 반려(삭제)하시겠습니까?`)) {
+            return;
+        }
+
+        const res = await apiFetch('/api/users/reject', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: userId })
+        });
+        if (res && res.status === 'success') {
+            showToast(res.message, 'info');
+            loadUsersTable();
+        }
+    };
 
     // 관리자: 사용자 비밀번호 변경/초기화
     window.resetUserPassword = async function(userId, name, username) {

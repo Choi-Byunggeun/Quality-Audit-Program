@@ -197,37 +197,50 @@ def _ensure_users_table():
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             name TEXT NOT NULL,
+            department TEXT DEFAULT '',
             role TEXT NOT NULL DEFAULT 'user',
+            status TEXT NOT NULL DEFAULT 'approved',
             employee_id TEXT,
             auditor_id INTEGER,
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (auditor_id) REFERENCES auditors(id)
         )
     """)
+    # 컬럼 누락 방어
+    try:
+        c.execute("PRAGMA table_info(users)")
+        cols = [r[1] if isinstance(r, (list, tuple)) else r["name"] for r in c.fetchall()]
+        if "status" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'")
+        if "department" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN department TEXT DEFAULT ''")
+    except Exception:
+        pass
+
     # admin 계정 없으면 기본 생성
     c.execute("SELECT id FROM users WHERE username = ?", ("admin",))
     if not c.fetchone():
         c.execute("""
-            INSERT INTO users (username, password, name, role)
-            VALUES ('admin', 'admin1234', '시스템 관리자', 'admin')
+            INSERT INTO users (username, password, name, role, status)
+            VALUES ('admin', 'admin1234', '시스템 관리자', 'admin', 'approved')
         """)
 
     # 심사원 목록을 users 테이블에 동기화
-    c.execute("SELECT id, name_kr, employee_id FROM auditors")
-    for aud_id, name_kr, emp_id in c.fetchall():
+    c.execute("SELECT id, name_kr, employee_id, department FROM auditors")
+    for aud_id, name_kr, emp_id, dept in c.fetchall():
         if emp_id:
             c.execute("SELECT id FROM users WHERE UPPER(username) = UPPER(?)", (emp_id,))
             if not c.fetchone():
                 init_pw = "123456" if emp_id.upper() in ("T180476", "T180479") else get_default_password_for_employee(emp_id)
                 role = "admin" if emp_id.upper() in ("T180476", "T180479") else "user"
                 c.execute("""
-                    INSERT INTO users (username, password, name, role, employee_id, auditor_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (emp_id.upper(), init_pw, name_kr, role, emp_id.upper(), aud_id))
+                    INSERT INTO users (username, password, name, department, role, status, employee_id, auditor_id)
+                    VALUES (?, ?, ?, ?, ?, 'approved', ?, ?)
+                """, (emp_id.upper(), init_pw, name_kr, dept or "", role, emp_id.upper(), aud_id))
 
     # 지정 관리자 사번(T180476, T180479) role 보장
     for admin_emp in ("T180476", "T180479"):
-        c.execute("UPDATE users SET role = 'admin' WHERE UPPER(username) = UPPER(?)", (admin_emp,))
+        c.execute("UPDATE users SET role = 'admin', status = 'approved' WHERE UPPER(username) = UPPER(?)", (admin_emp,))
 
     conn.commit()
     conn.close()
@@ -1258,22 +1271,40 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/users":
-            user = self.get_current_user()
-            if not user or user.get("role") != "admin":
-                self.send_json_response({"detail": "관리자 권한이 필요합니다."}, 403)
+            if not self.require_admin():
                 return
             conn = get_db_connection()
             c = conn.cursor()
             c.execute("""
-                SELECT u.id, u.username, u.name, u.role, u.employee_id, u.auditor_id, u.created_at,
-                       a.department, a.qualification, a.cert_number
+                SELECT u.id, u.username, u.name, u.role, u.status, u.employee_id, u.auditor_id, u.created_at,
+                       COALESCE(NULLIF(u.department, ''), a.department, '') as department,
+                       a.qualification, a.cert_number
                 FROM users u
                 LEFT JOIN auditors a ON u.auditor_id = a.id
-                ORDER BY CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END, u.id ASC
+                ORDER BY 
+                    CASE WHEN u.status = 'pending' THEN 0 ELSE 1 END,
+                    CASE WHEN u.role = 'admin' THEN 0 ELSE 1 END,
+                    u.id ASC
             """)
             users = [dict(r) for r in c.fetchall()]
             conn.close()
             self.send_json_response(users)
+            return
+
+        elif path == "/api/users/pending":
+            if not self.require_admin():
+                return
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("""
+                SELECT u.id, u.username, u.name, u.department, u.role, u.status, u.created_at
+                FROM users u
+                WHERE u.status = 'pending'
+                ORDER BY u.id DESC
+            """)
+            pending = [dict(r) for r in c.fetchall()]
+            conn.close()
+            self.send_json_response({"pending": pending, "count": len(pending)})
             return
 
         # ── 품질심사 체크리스트(설문형 점검표) & 엑셀 다운로드 API ───────────
@@ -1631,8 +1662,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
         post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
         data = json.loads(post_data.decode('utf-8'))
 
-        # 접속 즉시 로그인 필수: 로그인/로그아웃 외 모든 POST API 인증 요구
-        if path.startswith("/api/") and path not in ("/api/auth/login", "/api/auth/logout"):
+        # 접속 즉시 로그인 필수: 로그인/로그아웃/회원가입 신청 외 모든 POST API 인증 요구
+        if path.startswith("/api/") and path not in ("/api/auth/login", "/api/auth/logout", "/api/auth/register"):
             if not self.require_auth():
                 return
 
@@ -1922,6 +1953,53 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         # ── 인증 및 계정 관리 API ──────────────────────────────────
+        elif path == "/api/auth/register":
+            username = (data.get("username") or "").strip().upper()
+            name = (data.get("name") or "").strip()
+            department = (data.get("department") or "").strip()
+            password = (data.get("password") or "").strip()
+
+            if not username or not name or not password:
+                self.send_json_response({"detail": "사번(아이디), 성명, 비밀번호는 필수 입력 항목입니다."}, 400)
+                return
+
+            if len(password) < 4:
+                self.send_json_response({"detail": "비밀번호는 최소 4자 이상(숫자 6자리 권장)이어야 합니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("SELECT id, status FROM users WHERE UPPER(username) = UPPER(?)", (username,))
+            existing = c.fetchone()
+            if existing:
+                conn.close()
+                st = existing.get("status") if hasattr(existing, "get") else existing[1]
+                if st == "pending":
+                    self.send_json_response({"detail": f"사번 '{username}'(으)로 이미 가입 신청되어 관리자 승인 대기 중입니다."}, 400)
+                else:
+                    self.send_json_response({"detail": f"사번 '{username}'은(는) 이미 등록된 계정입니다. 바로 로그인해주세요."}, 400)
+                return
+
+            # 심사원 목록에 사번이 등록되어 있는지 확인하여 auditor_id 자동 연결
+            c.execute("SELECT id, department FROM auditors WHERE UPPER(employee_id) = UPPER(?)", (username,))
+            aud = c.fetchone()
+            aud_id = aud["id"] if aud else None
+            if not department and aud and aud["department"]:
+                department = aud["department"]
+
+            c.execute("""
+                INSERT INTO users (username, password, name, department, role, status, employee_id, auditor_id)
+                VALUES (?, ?, ?, ?, 'user', 'pending', ?, ?)
+            """, (username, password, name, department, username, aud_id))
+            conn.commit()
+            conn.close()
+
+            self.send_json_response({
+                "status": "success",
+                "message": f"'{name}({username})' 님의 가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다."
+            })
+            return
+
         elif path == "/api/auth/login":
             username = data.get("username", "").strip()
             password = data.get("password", "").strip()
@@ -1932,8 +2010,9 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             conn = get_db_connection()
             c = conn.cursor()
             c.execute("""
-                SELECT u.id, u.username, u.password, u.name, u.role, u.employee_id, u.auditor_id,
-                       a.department, a.qualification, a.cert_number
+                SELECT u.id, u.username, u.password, u.name, u.role, u.status, u.employee_id, u.auditor_id,
+                       COALESCE(NULLIF(u.department, ''), a.department, '') as department,
+                       a.qualification, a.cert_number
                 FROM users u
                 LEFT JOIN auditors a ON u.auditor_id = a.id
                 WHERE UPPER(u.username) = UPPER(?)
@@ -1944,12 +2023,21 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             if not user_row or user_row["password"] != password:
                 self.send_json_response({"detail": "아이디 또는 비밀번호가 일치하지 않습니다."}, 401)
                 return
+
+            user_status = user_row["status"] if "status" in user_row.keys() else "approved"
+            if user_status == "pending":
+                self.send_json_response({"detail": "관리자 승인 대기 중인 계정입니다. 시스템 관리자 승인 후 로그인할 수 있습니다."}, 403)
+                return
+            if user_status == "rejected":
+                self.send_json_response({"detail": "가입 신청이 반려된 계정입니다. 시스템 관리자에게 문의하세요."}, 403)
+                return
             
             user_info = {
                 "id": user_row["id"],
                 "username": user_row["username"],
                 "name": user_row["name"],
                 "role": user_row["role"],
+                "status": user_status,
                 "employee_id": user_row["employee_id"],
                 "auditor_id": user_row["auditor_id"],
                 "department": user_row["department"] or "",
@@ -2132,6 +2220,61 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
             self.send_json_response({"status": "success", "message": f"계정 '{uname}'이(가) 완전히 삭제되었습니다."})
+            return
+
+        elif path == "/api/users/approve":
+            if not self.require_admin():
+                return
+            target_user_id = data.get("user_id")
+            role = data.get("role", "user")
+            if not target_user_id:
+                self.send_json_response({"detail": "승인할 사용자 ID가 필요합니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("SELECT username, name FROM users WHERE id = ?", (target_user_id,))
+            target_row = c.fetchone()
+            if not target_row:
+                conn.close()
+                self.send_json_response({"detail": "해당 사용자를 찾을 수 없습니다."}, 404)
+                return
+
+            c.execute("UPDATE users SET status = 'approved', role = ? WHERE id = ?", (role, target_user_id))
+            conn.commit()
+            conn.close()
+
+            role_label = "시스템 관리자" if role == "admin" else "일반 심사원"
+            self.send_json_response({
+                "status": "success",
+                "message": f"'{target_row['name']}({target_row['username']})' 계정의 가입이 승인되었습니다. (권한: {role_label})"
+            })
+            return
+
+        elif path == "/api/users/reject":
+            if not self.require_admin():
+                return
+            target_user_id = data.get("user_id")
+            if not target_user_id:
+                self.send_json_response({"detail": "반려할 사용자 ID가 필요합니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("SELECT username, name FROM users WHERE id = ?", (target_user_id,))
+            target_row = c.fetchone()
+            if not target_row:
+                conn.close()
+                self.send_json_response({"detail": "해당 사용자를 찾을 수 없습니다."}, 404)
+                return
+
+            c.execute("DELETE FROM users WHERE id = ?", (target_user_id,))
+            conn.commit()
+            conn.close()
+            self.send_json_response({
+                "status": "success",
+                "message": f"'{target_row['name']}({target_row['username']})' 님의 가입 신청이 반려(삭제)되었습니다."
+            })
             return
 
         elif path == "/api/findings/add":
