@@ -418,15 +418,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // --------------------------------------------------------
-    // 네비게이션 및 탭 전환
+    // 네비게이션 및 탭 전환 (권한 기반 접근 가드)
     // --------------------------------------------------------
     navItems.forEach(item => {
         item.addEventListener("click", () => {
+            const tabName = item.getAttribute("data-tab");
+            
+            // 일반 심사원 권한 제한: 내 심사 일정, 체크리스트, 대상 분석 외 접근 차단
+            const allowedAuditorTabs = ['mypage', 'checklist', 'analysis'];
+            if (currentUser && currentUser.role !== 'admin' && !allowedAuditorTabs.includes(tabName)) {
+                showToast("접근 권한이 없습니다. (일반 심사원은 '내 심사 일정', '품질심사 체크리스트', '심사 대상 분석'만 이용할 수 있습니다.)", 'warning');
+                return;
+            }
+
             navItems.forEach(nav => nav.classList.remove("active"));
             tabPanes.forEach(pane => pane.classList.remove("active"));
 
             item.classList.add("active");
-            currentTab = item.getAttribute("data-tab");
+            currentTab = tabName;
             const targetPane = document.getElementById(`tab-${currentTab}`);
             if (targetPane) targetPane.classList.add("active");
 
@@ -2772,6 +2781,13 @@ document.addEventListener("DOMContentLoaded", () => {
             document.querySelectorAll('.admin-only').forEach(el => {
                 el.style.display = isAdmin ? '' : 'none';
             });
+
+            // 일반 심사원일 경우 허용된 3대 메뉴(내 심사 일정, 체크리스트, 대상 분석) 외의 탭에 있다면 '내 심사 일정'으로 강제 이동
+            const allowedAuditorTabs = ['mypage', 'checklist', 'analysis'];
+            if (!isAdmin && !allowedAuditorTabs.includes(currentTab)) {
+                const navMyPage = document.getElementById('nav-mypage');
+                if (navMyPage) navMyPage.click();
+            }
         } else {
             // 미로그인 (접속 즉시 로그인 필수 게이트)
             if (appContainer) appContainer.classList.add('auth-locked');
@@ -3109,26 +3125,50 @@ document.addEventListener("DOMContentLoaded", () => {
         users.forEach((user, idx) => {
             const tr = document.createElement('tr');
             const isAdmin = user.role === 'admin';
+            const isSelf = currentUser && (currentUser.id === user.id);
             tr.innerHTML = `
                 <td>${idx + 1}</td>
-                <td><code>${user.username}</code></td>
+                <td><code style="font-weight:700; color:var(--text-primary); font-size:13px;">${user.username}</code></td>
                 <td><strong>${user.name}</strong></td>
                 <td>${user.department || '-'}</td>
-                <td><span class="role-chip ${isAdmin ? 'admin' : 'user'}">${isAdmin ? '관리자' : '심사원'}</span></td>
+                <td><span class="role-chip ${isAdmin ? 'admin' : 'user'}">${isAdmin ? '시스템 관리자' : '일반 심사원'}</span></td>
                 <td><small>${user.qualification || user.cert_number || '-'}</small></td>
                 <td><small style="color:var(--text-secondary);">${user.created_at || '-'}</small></td>
                 <td style="text-align:center;">
-                    <button class="btn btn-secondary btn-sm" onclick="resetUserPassword(${user.id}, '${user.name}', '${user.username}')" title="비밀번호 초기화">
-                        <i class="fa-solid fa-rotate-left"></i> 비밀번호 초기화
-                    </button>
+                    <div style="display:inline-flex; gap:6px;">
+                        <button class="btn btn-secondary btn-sm" onclick="resetUserPassword(${user.id}, '${user.name}', '${user.username}')" title="비밀번호 변경/초기화">
+                            <i class="fa-solid fa-key"></i> 비밀번호 변경
+                        </button>
+                        ${isSelf ? `
+                            <button class="btn btn-secondary btn-sm" disabled style="opacity:0.4; cursor:not-allowed;" title="본인 계정은 삭제할 수 없습니다.">
+                                <i class="fa-solid fa-trash"></i> 삭제
+                            </button>
+                        ` : `
+                            <button class="btn btn-outline-danger btn-sm" onclick="deleteUserAccount(${user.id}, '${user.name}', '${user.username}')" title="계정 영구 삭제">
+                                <i class="fa-solid fa-trash"></i> 삭제
+                            </button>
+                        `}
+                    </div>
                 </td>
             `;
             tbody.appendChild(tr);
         });
     }
 
+    // 관리자: 사용자 비밀번호 변경/초기화
     window.resetUserPassword = async function(userId, name, username) {
-        const newPw = prompt(`'${name}(${username})' 사용자의 비밀번호를 초기화합니다.\n설정할 초기 비밀번호를 입력해주세요:`, '1234');
+        let defaultSuggest = '123456';
+        const digits = username.replace(/[^0-9]/g, '');
+        if (digits.length >= 6) {
+            defaultSuggest = digits.slice(-6);
+        } else if (digits.length > 0) {
+            defaultSuggest = digits.padStart(6, '0');
+        }
+        if (username.toLowerCase() === 'admin') {
+            defaultSuggest = 'admin1234';
+        }
+
+        const newPw = prompt(`[${name} (${username})] 계정의 비밀번호를 변경합니다.\n새로 설정할 비밀번호(숫자 6자리 권장)를 입력해주세요:`, defaultSuggest);
         if (newPw === null) return;
         if (!newPw.trim()) {
             alert('비밀번호를 입력해주세요.');
@@ -3144,9 +3184,107 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
+    // 관리자: 사용자 계정 삭제
+    window.deleteUserAccount = async function(userId, name, username) {
+        if (!confirm(`정말로 '${name} (${username})' 계정을 완전히 삭제하시겠습니까?\n삭제 후에는 해당 사번으로 로그인할 수 없으며, 필요 시 다시 등록해야 합니다.`)) {
+            return;
+        }
+
+        const res = await apiFetch('/api/users/delete', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: userId })
+        });
+        if (res && res.status === 'success') {
+            showToast(res.message, 'success');
+            loadUsersTable();
+        }
+    };
+
+    // 신규 계정 등록 모달 요소 및 리스너 바인딩
+    const btnOpenUserCreate = document.getElementById('btn-open-user-create-modal');
+    const modalUserCreate = document.getElementById('modal-user-create');
+    const btnCloseUserCreate = document.getElementById('btn-close-user-create-modal');
+    const btnCancelUserCreate = document.getElementById('btn-cancel-user-create-modal');
+    const userCreateForm = document.getElementById('user-create-form');
+    const inputCreateEmpId = document.getElementById('create-user-empid');
+    const inputCreatePassword = document.getElementById('create-user-password');
+
+    if (btnOpenUserCreate) {
+        btnOpenUserCreate.addEventListener('click', () => {
+            if (userCreateForm) userCreateForm.reset();
+            if (modalUserCreate) modalUserCreate.classList.add('active');
+        });
+    }
+    if (btnCloseUserCreate) {
+        btnCloseUserCreate.addEventListener('click', () => modalUserCreate.classList.remove('active'));
+    }
+    if (btnCancelUserCreate) {
+        btnCancelUserCreate.addEventListener('click', () => modalUserCreate.classList.remove('active'));
+    }
+    if (modalUserCreate) {
+        modalUserCreate.addEventListener('click', (e) => {
+            if (e.target === modalUserCreate) modalUserCreate.classList.remove('active');
+        });
+    }
+
+    // 사번 입력 시 자동 대문자 변환 및 초기 비밀번호 6자리 자동 제안
+    if (inputCreateEmpId) {
+        inputCreateEmpId.addEventListener('input', (e) => {
+            const raw = e.target.value;
+            const upper = raw.toUpperCase();
+            if (raw !== upper) {
+                e.target.value = upper;
+            }
+            const digits = upper.replace(/[^0-9]/g, '');
+            if (inputCreatePassword) {
+                if (digits.length >= 6) {
+                    inputCreatePassword.value = digits.slice(-6);
+                } else if (digits.length > 0) {
+                    inputCreatePassword.value = digits.padStart(6, '0');
+                } else {
+                    inputCreatePassword.value = '';
+                }
+            }
+        });
+    }
+
+    // 신규 계정 등록 제출
+    if (userCreateForm) {
+        userCreateForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = inputCreateEmpId.value.trim().toUpperCase();
+            const name = document.getElementById('create-user-name').value.trim();
+            const role = document.getElementById('create-user-role').value;
+            const password = inputCreatePassword.value.trim();
+
+            if (!username || !name) {
+                showToast('사번(아이디)과 성명을 입력해주세요.', 'error');
+                return;
+            }
+
+            const res = await apiFetch('/api/users/create', {
+                method: 'POST',
+                body: JSON.stringify({
+                    username,
+                    name,
+                    role,
+                    password
+                })
+            });
+
+            if (res && res.status === 'success') {
+                showToast(res.message, 'success');
+                modalUserCreate.classList.remove('active');
+                userCreateForm.reset();
+                loadUsersTable();
+            }
+        });
+    }
+
     const btnRefreshUsers = document.getElementById('btn-refresh-users');
     if (btnRefreshUsers) {
         btnRefreshUsers.addEventListener('click', loadUsersTable);
+    }
     }
 
     // ========================================================

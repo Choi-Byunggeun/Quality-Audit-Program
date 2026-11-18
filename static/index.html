@@ -25,7 +25,7 @@
                 <span>AuditPlanner</span>
             </div>
             <nav class="nav-menu">
-                <button class="nav-item active" data-tab="dashboard">
+                <button class="nav-item active admin-only" data-tab="dashboard" id="nav-dashboard">
                     <i class="fa-solid fa-chart-pie"></i> 대시보드
                 </button>
                 <button class="nav-item" data-tab="mypage" id="nav-mypage">
@@ -38,16 +38,16 @@
                 <button class="nav-item" data-tab="analysis" id="nav-analysis">
                     <i class="fa-solid fa-folder-tree"></i> 심사 대상 분석
                 </button>
-                <button class="nav-item" data-tab="calendar">
+                <button class="nav-item admin-only" data-tab="calendar" id="nav-calendar">
                     <i class="fa-solid fa-calendar-days"></i> 연간 세부 계획
                 </button>
-                <button class="nav-item" data-tab="list">
+                <button class="nav-item admin-only" data-tab="list" id="nav-list">
                     <i class="fa-solid fa-list-check"></i> 월별 목록
                 </button>
-                <button class="nav-item" data-tab="manage">
+                <button class="nav-item admin-only" data-tab="manage" id="nav-manage">
                     <i class="fa-solid fa-database"></i> 심사 대상 관리
                 </button>
-                <button class="nav-item" data-tab="auditors" id="nav-auditors">
+                <button class="nav-item admin-only" data-tab="auditors" id="nav-auditors">
                     <i class="fa-solid fa-id-badge"></i> 심사원 관리
                     <span class="nav-alert-badge" id="nav-auditor-alert-count" style="display:none;">0</span>
                 </button>
@@ -1172,6 +1172,7 @@
                         </div>
                         <div class="table-actions">
                             <span class="badge badge-accent" id="user-count-badge">총 0명</span>
+                            <button class="btn btn-primary btn-sm" id="btn-open-user-create-modal"><i class="fa-solid fa-user-plus"></i> 신규 계정 등록</button>
                             <button class="btn btn-secondary btn-sm" id="btn-refresh-users"><i class="fa-solid fa-rotate"></i> 새로고침</button>
                         </div>
                     </div>
@@ -1560,13 +1561,27 @@
                 <button class="close-btn" id="btn-close-login-modal">&times;</button>
             </div>
             <form id="login-form">
-                <div class="form-group">
+                <!-- 초기 로그인 안내 카드 -->
+                <div class="login-instruction-card">
+                    <div class="inst-header">
+                        <i class="fa-solid fa-circle-info"></i> <strong>초기 로그인 안내</strong>
+                    </div>
+                    <ul class="inst-list">
+                        <li><strong>• ID:</strong> 본인 사번 (예: <code>t123123</code> / 대소문자 무관)</li>
+                        <li><strong>• 초기 비밀번호:</strong> 사번에서 't'를 제외한 숫자 6자리 (예: <code>123123</code>)</li>
+                    </ul>
+                    <div class="inst-footer">
+                        ※ 로그인 후 상단 프로필 옆 <strong>[<i class="fa-solid fa-key"></i> 비밀번호 변경]</strong>에서 원하는 숫자 6자리로 언제든 변경할 수 있습니다.
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top:16px;">
                     <label for="login-username"><i class="fa-solid fa-id-card"></i> 사번 또는 관리자 아이디</label>
-                    <input type="text" id="login-username" class="input-field" placeholder="예: admin 또는 T250286" required autofocus>
+                    <input type="text" id="login-username" class="input-field" placeholder="예: t180476 또는 admin" required autofocus>
                 </div>
                 <div class="form-group">
                     <label for="login-password"><i class="fa-solid fa-lock"></i> 비밀번호</label>
-                    <input type="password" id="login-password" class="input-field" placeholder="비밀번호 입력 (기본: 1234 / admin1234)" required>
+                    <input type="password" id="login-password" class="input-field" placeholder="비밀번호 입력 (초기: 사번 숫자 6자리)" required>
                 </div>
 
                 <div class="quick-login-box">
@@ -1575,11 +1590,11 @@
                         <button type="button" class="btn-quick-login btn-quick-admin" onclick="quickLogin('admin', 'admin1234')">
                             <i class="fa-solid fa-user-shield"></i> 관리자 (admin)
                         </button>
-                        <button type="button" class="btn-quick-login" onclick="quickLogin('T250286', '1234')">
-                            <i class="fa-solid fa-user"></i> 심사원 1
+                        <button type="button" class="btn-quick-login" onclick="quickLogin('T250286', '250286')">
+                            <i class="fa-solid fa-user"></i> 심사원 (박영일)
                         </button>
-                        <button type="button" class="btn-quick-login" onclick="quickLogin('T240952', '1234')">
-                            <i class="fa-solid fa-user"></i> 심사원 2
+                        <button type="button" class="btn-quick-login" onclick="quickLogin('T180476', '180476')">
+                            <i class="fa-solid fa-user"></i> 심사원 (최병근)
                         </button>
                     </div>
                 </div>
@@ -1602,13 +1617,16 @@
                 <button class="close-btn" id="btn-close-password-modal">&times;</button>
             </div>
             <form id="change-password-form">
+                <p style="font-size:0.875rem; color:var(--text-secondary); margin-bottom:16px;">
+                    원하는 숫자 6자리(또는 4자 이상)로 새로운 비밀번호를 설정할 수 있습니다.
+                </p>
                 <div class="form-group">
                     <label for="pw-current">현재 비밀번호</label>
                     <input type="password" id="pw-current" class="input-field" placeholder="현재 비밀번호를 입력하세요" required>
                 </div>
                 <div class="form-group">
-                    <label for="pw-new">새 비밀번호 (최소 4자 이상)</label>
-                    <input type="password" id="pw-new" class="input-field" placeholder="새로운 비밀번호를 입력하세요" required minlength="4">
+                    <label for="pw-new">새 비밀번호 (숫자 6자리 권장, 최소 4자 이상)</label>
+                    <input type="password" id="pw-new" class="input-field" placeholder="새로운 6자리 비밀번호 입력" required minlength="4">
                 </div>
                 <div class="form-group">
                     <label for="pw-new-confirm">새 비밀번호 확인</label>
@@ -1617,6 +1635,45 @@
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" id="btn-cancel-password-modal">취소</button>
                     <button type="submit" class="btn btn-primary" id="btn-submit-password">변경하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: User Create Modal (관리자 전용 계정 등록) -->
+    <div class="modal" id="modal-user-create">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-user-plus" style="color:var(--accent-blue);"></i> 신규 사용자 계정 등록</h2>
+                <button class="close-btn" id="btn-close-user-create-modal">&times;</button>
+            </div>
+            <form id="user-create-form">
+                <div class="form-group">
+                    <label for="create-user-empid"><i class="fa-solid fa-id-card"></i> 사번 (아이디) <span style="color:#ef4444;">*</span></label>
+                    <input type="text" id="create-user-empid" class="input-field" placeholder="예: T180476 (소문자 입력 시 자동 대문자 변환)" required>
+                    <small style="color:var(--text-secondary); margin-top:4px; display:block;">영문 'T'와 숫자 6자리 조합으로 입력하세요.</small>
+                </div>
+                <div class="form-group">
+                    <label for="create-user-name"><i class="fa-solid fa-user"></i> 성명 <span style="color:#ef4444;">*</span></label>
+                    <input type="text" id="create-user-name" class="input-field" placeholder="예: 홍길동" required>
+                </div>
+                <div class="form-group">
+                    <label for="create-user-role"><i class="fa-solid fa-shield-halved"></i> 계정 권한 <span style="color:#ef4444;">*</span></label>
+                    <select id="create-user-role" class="select-field">
+                        <option value="user" selected>일반 심사원 (내 일정, 체크리스트, 대상 분석만 허용)</option>
+                        <option value="admin">시스템 관리자 (전체 메뉴 조회 및 수정 권한)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="create-user-password"><i class="fa-solid fa-key"></i> 초기 비밀번호</label>
+                    <input type="text" id="create-user-password" class="input-field" placeholder="사번 입력 시 뒤 6자리 자동 생성 (직접 변경 가능)">
+                    <small style="color:var(--text-secondary); margin-top:4px; display:block;">비워둘 경우 사번에서 't'를 제외한 숫자 6자리로 자동 지정됩니다.</small>
+                </div>
+                <div class="form-actions" style="margin-top:20px;">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-user-create-modal">취소</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit-user-create">
+                        <i class="fa-solid fa-check"></i> 계정 생성
+                    </button>
                 </div>
             </form>
         </div>

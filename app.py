@@ -176,6 +176,17 @@ def _ensure_targets_schema():
     conn.commit()
     conn.close()
 
+def get_default_password_for_employee(emp_id: str) -> str:
+    """사번에서 't'/'T'를 제외한 숫자 6자리 또는 숫자 부분 추출 (초기 비밀번호 규칙)"""
+    if not emp_id:
+        return "123456"
+    digits = re.sub(r'[^0-9]', '', str(emp_id))
+    if len(digits) >= 6:
+        return digits[-6:]
+    elif digits:
+        return digits.zfill(6)
+    return "123456"
+
 def _ensure_users_table():
     """users 테이블 생성 및 초기 계정(admin + auditors) 자동 동기화"""
     conn = get_db_connection()
@@ -205,12 +216,13 @@ def _ensure_users_table():
     c.execute("SELECT id, name_kr, employee_id FROM auditors")
     for aud_id, name_kr, emp_id in c.fetchall():
         if emp_id:
-            c.execute("SELECT id FROM users WHERE username = ?", (emp_id,))
+            c.execute("SELECT id FROM users WHERE UPPER(username) = UPPER(?)", (emp_id,))
             if not c.fetchone():
+                init_pw = get_default_password_for_employee(emp_id)
                 c.execute("""
                     INSERT INTO users (username, password, name, role, employee_id, auditor_id)
-                    VALUES (?, '1234', ?, 'user', ?, ?)
-                """, (emp_id, name_kr, emp_id, aud_id))
+                    VALUES (?, ?, ?, 'user', ?, ?)
+                """, (emp_id.upper(), init_pw, name_kr, emp_id.upper(), aud_id))
     conn.commit()
     conn.close()
 
@@ -821,6 +833,15 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
         user = self.get_current_user()
         if not user:
             self.send_json_response({"detail": "로그인이 필요합니다."}, 401)
+            return None
+        return user
+
+    def require_admin(self):
+        user = self.require_auth()
+        if not user:
+            return None
+        if user.get("role") != "admin":
+            self.send_json_response({"detail": "관리자 권한이 필요합니다."}, 403)
             return None
         return user
 
@@ -1609,8 +1630,10 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             if not self.require_auth():
                 return
 
-        # 4. 수동 입력 시 인터벌 재계산 (동적 롤링 로직)
+        # 4. 수동 입력 시 인터벌 재계산 (동적 롤링 로직 - 관리자 전용)
         if path == "/api/history/update":
+            if not self.require_admin():
+                return
             target_id = int(data["target_id"])
             year = int(data["year"])
             audit_type = data["audit_type"]
@@ -1664,6 +1687,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/event/add":
+            if not self.require_admin():
+                return
             target_id = int(data["target_id"])
             year = int(data["year"])
             detail = data["detail"]
@@ -1701,6 +1726,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/target/add":
+            if not self.require_admin():
+                return
             category = data["category"]
             station_name = data["station_name"]
             operation_status = data["operation_status"]
@@ -1733,6 +1760,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/target/update":
+            if not self.require_admin():
+                return
             target_id = int(data["id"])
             category = data["category"]
             station_name = data["station_name"]
@@ -1773,8 +1802,10 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             self.send_json_response({"status": "success", "message": "심사 대상 정보가 성공적으로 수정되었습니다."})
             return
 
-        # ── 심사원 CRUD ────────────────────────────────────────────
+        # ── 심사원 CRUD (관리자 전용) ──────────────────────────────────
         elif path == "/api/auditor/add":
+            if not self.require_admin():
+                return
             name_kr = data.get("name_kr", "").strip()
             if not name_kr:
                 self.send_json_response({"detail": "심사원명(한글)은 필수입니다."}, 400)
@@ -1816,6 +1847,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/auditor/update":
+            if not self.require_admin():
+                return
             auditor_id = int(data["id"])
             init_train = data.get("initial_training_date") or None
             last_refresh = data.get("last_refresher_date") or None
@@ -1853,6 +1886,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/auditor/delete":
+            if not self.require_admin():
+                return
             auditor_id = int(data["id"])
             conn = get_db_connection()
             c = conn.cursor()
@@ -1864,6 +1899,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/target/delete":
+            if not self.require_admin():
+                return
             target_id = int(data["id"])
             
             conn = get_db_connection()
@@ -1893,7 +1930,7 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                        a.department, a.qualification, a.cert_number
                 FROM users u
                 LEFT JOIN auditors a ON u.auditor_id = a.id
-                WHERE u.username = ?
+                WHERE UPPER(u.username) = UPPER(?)
             """, (username,))
             user_row = c.fetchone()
             conn.close()
@@ -1963,7 +2000,7 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                 self.send_json_response({"detail": "현재 비밀번호와 새 비밀번호를 입력해주세요."}, 400)
                 return
             if len(new_pw) < 4:
-                self.send_json_response({"detail": "새 비밀번호는 최소 4자 이상이어야 합니다."}, 400)
+                self.send_json_response({"detail": "새 비밀번호는 최소 4자 이상(숫자 6자리 권장)이어야 합니다."}, 400)
                 return
             
             conn = get_db_connection()
@@ -1981,22 +2018,114 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             self.send_json_response({"status": "success", "message": "비밀번호가 성공적으로 변경되었습니다."})
             return
 
+        elif path == "/api/users/create":
+            if not self.require_admin():
+                return
+            username = (data.get("username") or "").strip()
+            name = (data.get("name") or "").strip()
+            role = (data.get("role") or "user").strip()
+            auditor_id = data.get("auditor_id") or None
+            custom_pw = (data.get("password") or "").strip()
+
+            if not username or not name:
+                self.send_json_response({"detail": "아이디(사번)와 사용자명은 필수 항목입니다."}, 400)
+                return
+
+            if role not in ("admin", "user"):
+                role = "user"
+
+            # admin 외에는 사번 대문자 처리
+            if username.lower() != "admin":
+                username = username.upper()
+                emp_id = username
+            else:
+                emp_id = None
+
+            # 비밀번호 미입력 시 초기 규칙: 사번 숫자 6자리 (admin은 admin1234)
+            if not custom_pw:
+                if username.lower() == "admin":
+                    custom_pw = "admin1234"
+                else:
+                    custom_pw = get_default_password_for_employee(username)
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("SELECT id FROM users WHERE UPPER(username) = UPPER(?)", (username,))
+            if c.fetchone():
+                conn.close()
+                self.send_json_response({"detail": f"이미 존재하는 아이디(사번) '{username}' 입니다."}, 400)
+                return
+
+            c.execute("""
+                INSERT INTO users (username, password, name, role, employee_id, auditor_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (username, custom_pw, name, role, emp_id, auditor_id))
+            new_uid = c.lastrowid
+            conn.commit()
+            conn.close()
+
+            self.send_json_response({
+                "status": "success",
+                "message": f"계정 '{username}'({name})이(가) 등록되었습니다. (초기 비밀번호: {custom_pw})",
+                "user_id": new_uid
+            })
+            return
+
         elif path == "/api/users/reset_password":
-            user = self.get_current_user()
-            if not user or user.get("role") != "admin":
-                self.send_json_response({"detail": "관리자 권한이 필요합니다."}, 403)
+            if not self.require_admin():
                 return
             target_user_id = data.get("user_id")
-            new_pw = data.get("new_password", "1234").strip()
+            new_pw = (data.get("new_password") or "").strip()
             if not target_user_id:
                 self.send_json_response({"detail": "사용자 ID가 필요합니다."}, 400)
                 return
+
             conn = get_db_connection()
             c = conn.cursor()
+            c.execute("SELECT username FROM users WHERE id = ?", (target_user_id,))
+            target_user = c.fetchone()
+            if not target_user:
+                conn.close()
+                self.send_json_response({"detail": "사용자를 찾을 수 없습니다."}, 404)
+                return
+
+            # 새 비밀번호가 비어있으면 사번 6자리로 초기화
+            if not new_pw:
+                new_pw = get_default_password_for_employee(target_user["username"])
+
             c.execute("UPDATE users SET password = ? WHERE id = ?", (new_pw, target_user_id))
             conn.commit()
             conn.close()
-            self.send_json_response({"status": "success", "message": f"비밀번호가 '{new_pw}'(으)로 초기화되었습니다."})
+            self.send_json_response({"status": "success", "message": f"비밀번호가 '{new_pw}'(으)로 변경되었습니다."})
+            return
+
+        elif path == "/api/users/delete":
+            admin_user = self.require_admin()
+            if not admin_user:
+                return
+            target_user_id = data.get("user_id")
+            if not target_user_id:
+                self.send_json_response({"detail": "삭제할 사용자 ID가 필요합니다."}, 400)
+                return
+
+            if int(target_user_id) == int(admin_user["id"]):
+                self.send_json_response({"detail": "현재 로그인된 본인 관리자 계정은 삭제할 수 없습니다."}, 400)
+                return
+
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("SELECT username, name FROM users WHERE id = ?", (target_user_id,))
+            target_row = c.fetchone()
+            if not target_row:
+                conn.close()
+                self.send_json_response({"detail": "해당 사용자를 찾을 수 없습니다."}, 404)
+                return
+
+            uname = target_row["username"]
+            c.execute("DELETE FROM users WHERE id = ?", (target_user_id,))
+            conn.commit()
+            conn.close()
+            self.send_json_response({"status": "success", "message": f"계정 '{uname}'이(가) 완전히 삭제되었습니다."})
             return
 
         elif path == "/api/findings/add":
@@ -2312,6 +2441,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/checklists/session/delete":
+            if not self.require_admin():
+                return
             sid = int(data["id"])
             conn = get_db_connection()
             c = conn.cursor()
@@ -2322,6 +2453,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/checklists/upload_excel":
+            if not self.require_admin():
+                return
             filename = os.path.basename(data.get("filename", "")).strip()
             b64_content = data.get("content_base64", "")
             override_code = data.get("code", "").strip() or None
@@ -2354,6 +2487,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/checklists/rescan":
+            if not self.require_admin():
+                return
             imported = sync_checklist_templates_from_excel()
             self.send_json_response({
                 "status": "success",
