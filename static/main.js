@@ -2782,11 +2782,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 el.style.display = isAdmin ? '' : 'none';
             });
 
-            // 일반 심사원일 경우 허용된 3대 메뉴(내 심사 일정, 체크리스트, 대상 분석) 외의 탭에 있다면 '내 심사 일정'으로 강제 이동
+            // 일반 심사원일 경우 허용된 3대 메뉴(내 심사 일정, 체크리스트, 대상 분석) 외의 탭에 있다면 '내 심사 일정'으로 강제 전환
             const allowedAuditorTabs = ['mypage', 'checklist', 'analysis'];
             if (!isAdmin && !allowedAuditorTabs.includes(currentTab)) {
-                const navMyPage = document.getElementById('nav-mypage');
-                if (navMyPage) navMyPage.click();
+                currentTab = 'mypage';
+                navItems.forEach(nav => nav.classList.toggle('active', nav.getAttribute('data-tab') === 'mypage'));
+                tabPanes.forEach(pane => pane.classList.toggle('active', pane.id === 'tab-mypage'));
+                updatePageTitles();
             }
         } else {
             // 미로그인 (접속 즉시 로그인 필수 게이트)
@@ -2831,6 +2833,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 로그인 실행
     async function doLogin(username, password) {
+        const btnSubmit = document.getElementById('btn-submit-login');
+        const origBtnHtml = btnSubmit ? btnSubmit.innerHTML : '';
+        if (btnSubmit) {
+            btnSubmit.disabled = true;
+            btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 로그인 중...';
+        }
+
         try {
             const res = await fetch('/api/auth/login', {
                 method: 'POST',
@@ -2842,27 +2851,36 @@ document.addEventListener("DOMContentLoaded", () => {
                 authToken = data.token;
                 currentUser = data.user;
                 localStorage.setItem("audit_auth_token", authToken);
-                updateAuthUI();
-                if (loginModal) loginModal.classList.remove('active');
-                showToast(`${currentUser.name}님, 환영합니다! (${currentUser.role === 'admin' ? '관리자 권한' : '심사원 권한'})`, 'success');
                 
-                // 로그인 후 현재 탭 갱신 및 알림 로드
+                // 모달 즉시 닫기
+                if (loginModal) loginModal.classList.remove('active');
+                
+                // UI 갱신 (권한에 따른 탭 조정)
+                updateAuthUI();
+                showToast(`${currentUser.name}님, 환영합니다! (${currentUser.role === 'admin' ? '관리자 권한' : '일반 심사원 권한'})`, 'success');
+                
+                // 로그인 후 현재 탭 갱신
                 loadTabData();
-                setTimeout(() => loadAndShowAlerts(), 500);
+                
+                // 관리자에게만 심사원 알림 팝업 로드
+                if (currentUser.role === 'admin') {
+                    setTimeout(() => loadAndShowAlerts(), 500);
+                }
             } else {
                 showToast(data.detail || '로그인 실패: 아이디와 비밀번호를 확인해주세요.', 'error');
             }
         } catch (e) {
             showToast('로그인 요청 중 통신 오류가 발생했습니다.', 'error');
+        } finally {
+            if (btnSubmit) {
+                btnSubmit.disabled = false;
+                btnSubmit.innerHTML = origBtnHtml || '<i class="fa-solid fa-right-to-bracket"></i> 로그인';
+            }
         }
     }
 
-    // 빠른 테스트 로그인 (전역 바인딩)
-    window.quickLogin = function(username, password) {
-        document.getElementById('login-username').value = username;
-        document.getElementById('login-password').value = password;
-        doLogin(username, password);
-    };
+    // 빠른 테스트 로그인 (전역 바인딩 - 빈 함수로 안전화)
+    window.quickLogin = function() {};
 
     // 로그아웃
     async function doLogout() {
@@ -2896,13 +2914,30 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // 로그인 제출 처리 함수 (버튼 클릭 & 폼 submit 모두 지원)
+    const btnSubmitLogin = document.getElementById('btn-submit-login');
+    function handleLoginSubmit(e) {
+        if (e) e.preventDefault();
+        const u = document.getElementById('login-username').value.trim();
+        const p = document.getElementById('login-password').value.trim();
+        if (!u) {
+            showToast('사번(아이디)을 입력해주세요.', 'warning');
+            document.getElementById('login-username').focus();
+            return;
+        }
+        if (!p) {
+            showToast('비밀번호를 입력해주세요.', 'warning');
+            document.getElementById('login-password').focus();
+            return;
+        }
+        doLogin(u, p);
+    }
+
     if (loginForm) {
-        loginForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const u = document.getElementById('login-username').value.trim();
-            const p = document.getElementById('login-password').value.trim();
-            doLogin(u, p);
-        });
+        loginForm.addEventListener('submit', handleLoginSubmit);
+    }
+    if (btnSubmitLogin) {
+        btnSubmitLogin.addEventListener('click', handleLoginSubmit);
     }
 
     if (btnLogout) btnLogout.addEventListener('click', doLogout);
