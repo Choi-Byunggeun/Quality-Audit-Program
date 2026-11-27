@@ -566,115 +566,19 @@ body {
 }
 
 /* ==========================================================================
-   Mobile Responsive Rules (Bottom Tab Bar & Adjustments)
+   Mobile & Tablet Navigation Shell (Desktop: hidden)
    ========================================================================== */
-@media (max-width: 768px) {
-    .app-container {
-        grid-template-columns: 1fr;
-        padding-bottom: 72px;
-        /* Avoid overlay by bottom tabs */
-    }
-
-    .sidebar {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        height: 64px;
-        flex-direction: row;
-        padding: 0 12px;
-        border-right: none;
-        border-top: 1px solid var(--card-border);
-        box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.3);
-    }
-
-    .logo {
-        display: none;
-        /* Hide logo on mobile bar */
-    }
-
-    .nav-menu {
-        flex-direction: row;
-        width: 100%;
-        justify-content: flex-start;
-        align-items: center;
-        gap: 4px;
-        overflow-x: auto;
-        scrollbar-width: none;
-    }
-
-    .nav-menu::-webkit-scrollbar {
-        display: none;
-    }
-
-    .nav-item {
-        flex: 0 0 auto;
-        min-width: 68px;
-        padding: 8px 10px;
-        flex-direction: column;
-        gap: 4px;
-        font-size: 10px;
-        align-items: center;
-        justify-content: center;
-        border-radius: 0;
-        background: none;
-        white-space: nowrap;
-    }
-
-    .nav-item i {
-        font-size: 18px;
-    }
-
-    .nav-item.active {
-        box-shadow: none;
-        border-top: 3px solid var(--accent-blue);
-        color: var(--accent-blue);
-    }
-
-    .sidebar-footer {
-        display: none;
-        /* Hide side float button, put inside list menu header instead if needed */
-    }
-
-    .main-content {
-        padding: 20px;
-        max-height: calc(100vh - 64px);
-    }
-
-    .main-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 16px;
-    }
-
-    .header-actions {
-        width: 100%;
-    }
-
-    .year-selector-wrapper {
-        width: 100%;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .select-field {
-        width: 60%;
-    }
-
-    .form-row {
-        flex-direction: column;
-        gap: 0;
-    }
-
-    .col-6 {
-        width: 100%;
-    }
-
-    .month-box {
-        padding: 16px;
-    }
+.mobile-topbar,
+.mobile-bottom-nav,
+.sidebar-backdrop,
+.sidebar-close-btn {
+    display: none;
 }
+
+body.drawer-open {
+    overflow: hidden;
+}
+
 
 /* Danger Button Theme for Delete operations */
 .btn-danger {
@@ -4779,3 +4683,523 @@ body {
     gap: 5px;
     line-height: 1.45;
 }
+
+
+/* ==========================================================================
+   Tablet & Mobile Responsive Rules (<= 1024px: Slide Drawer, <= 768px: App UX)
+   ========================================================================== */
+@media (max-width: 1024px) {
+    html,
+    body {
+        overflow-x: hidden;
+        max-width: 100vw;
+    }
+
+    /* Fixed Compact Top App Bar */
+    .mobile-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: calc(56px + env(safe-area-inset-top, 0px));
+        padding: env(safe-area-inset-top, 0px) 14px 0 14px;
+        background: rgba(13, 17, 23, 0.94);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--card-border);
+        z-index: 950;
+    }
+
+    .mobile-menu-btn {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text-primary);
+        font-size: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+
+    .mobile-topbar-brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: 'Outfit', sans-serif;
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--accent-blue);
+    }
+
+    .mobile-topbar-right {
+        display: flex;
+        align-items: center;
+    }
+
+    .mobile-year-chip {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--accent-blue);
+        background: rgba(88, 166, 255, 0.14);
+        border: 1px solid rgba(88, 166, 255, 0.35);
+        padding: 5px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    /* Slide-over Sidebar Drawer */
+    .sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.62);
+        backdrop-filter: blur(2px);
+        z-index: 990;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+    }
+
+    .sidebar-backdrop.active {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .app-container {
+        display: block;
+        grid-template-columns: 1fr;
+        min-height: 100dvh;
+        padding-top: calc(56px + env(safe-area-inset-top, 0px));
+    }
+
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 280px;
+        max-width: 84vw;
+        height: 100dvh;
+        z-index: 1000;
+        transform: translateX(-105%);
+        transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+        box-shadow: 8px 0 32px rgba(0, 0, 0, 0.55);
+        padding-top: calc(20px + env(safe-area-inset-top, 0px));
+        padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+        overflow-y: auto;
+    }
+
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    .sidebar .logo {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+    }
+
+    .sidebar-close-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-secondary);
+        font-size: 16px;
+        cursor: pointer;
+        margin-left: auto;
+    }
+
+    .main-content {
+        width: 100%;
+        max-width: 100%;
+        max-height: none;
+        height: auto;
+        overflow: visible;
+        padding: 18px 16px 28px 16px;
+    }
+
+    .main-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+
+    .header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    /* Tables & Containers horizontal scroll protection */
+    .table-container,
+    .calendar-table-wrapper,
+    .matrix-wrapper,
+    .table-responsive {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Map height for tablet */
+    .leaflet-map-container {
+        height: 440px;
+    }
+}
+
+@media (max-width: 768px) {
+    .app-container {
+        padding-bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* Bottom App Tab Bar */
+    .mobile-bottom-nav {
+        display: flex;
+        align-items: stretch;
+        justify-content: space-around;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        top: auto;
+        min-height: 62px;
+        padding: 4px 4px calc(6px + env(safe-area-inset-bottom, 0px)) 4px;
+        background: rgba(13, 17, 23, 0.96);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-top: 1px solid var(--card-border);
+        box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.4);
+        z-index: 940;
+    }
+
+    .mobile-bottom-item {
+        flex: 1 1 0;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 6px 4px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 10.5px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        border-radius: 8px;
+        transition: color 0.15s ease, background 0.15s ease;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+
+    .mobile-bottom-item i {
+        font-size: 18px;
+    }
+
+    .mobile-bottom-item.active {
+        color: var(--accent-blue);
+        background: rgba(88, 166, 255, 0.1);
+    }
+
+    /* Main Content & Header Compact Styling */
+    .main-content {
+        padding: 14px 12px 24px 12px;
+    }
+
+    .header-title h1 {
+        font-size: 20px;
+        line-height: 1.25;
+    }
+
+    .header-title p {
+        font-size: 12.5px;
+    }
+
+    .header-actions {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .year-selector-wrapper {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--card-border);
+        border-radius: 10px;
+        padding: 8px 12px;
+    }
+
+    .year-selector-wrapper label {
+        font-size: 13px;
+        white-space: nowrap;
+        margin: 0;
+    }
+
+    .year-selector-wrapper .select-field {
+        width: auto;
+        min-width: 112px;
+        padding: 6px 12px;
+        font-size: 14px;
+    }
+
+    .auth-header-widget {
+        width: 100%;
+    }
+
+    .auth-logged-in {
+        width: 100%;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .user-pill {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .user-display-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+    }
+
+    .section-card {
+        padding: 14px 12px;
+        border-radius: 12px;
+    }
+
+    /* Dashboard World Map Mobile UX Fix */
+    .map-card-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .map-title-wrap h2 {
+        font-size: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .map-controls {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .map-btn-group {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        width: 100%;
+        gap: 6px;
+        padding: 4px;
+    }
+
+    .map-btn-group::-webkit-scrollbar {
+        display: none;
+    }
+
+    .map-filter-btn {
+        flex: 0 0 auto;
+        white-space: nowrap !important;
+        font-size: 12px !important;
+        padding: 8px 12px !important;
+        line-height: 1.2;
+    }
+
+    .map-theme-toggle {
+        align-self: flex-start;
+    }
+
+    .map-subbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .continent-pills {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 6px;
+        padding-bottom: 2px;
+    }
+
+    .continent-pills::-webkit-scrollbar {
+        display: none;
+    }
+
+    .continent-pill {
+        flex: 0 0 auto;
+        white-space: nowrap !important;
+        font-size: 12px;
+        padding: 6px 10px;
+    }
+
+    .map-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 14px;
+        font-size: 11.5px;
+    }
+
+    .legend-item {
+        white-space: nowrap;
+    }
+
+    .leaflet-map-container {
+        height: 330px;
+    }
+
+    /* Map floating panel -> stack cleanly below map on mobile so map stays visible */
+    .map-yearly-audit-panel {
+        position: static !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-top: 10px;
+        max-height: 240px;
+    }
+
+    .map-zoom-controls,
+    .map-preset-btn-group {
+        transform: scale(0.9);
+        transform-origin: top right;
+    }
+
+    /* Dashboard Cards & Grids */
+    .kpi-grid,
+    .stats-grid,
+    .dashboard-grid,
+    .analysis-grid,
+    .mypage-grid {
+        grid-template-columns: 1fr !important;
+        gap: 12px;
+    }
+
+    /* Checklist Mobile Touch UX */
+    .checklist-top-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .checklist-top-actions {
+        width: 100%;
+    }
+
+    .checklist-top-actions .btn {
+        flex: 1 1 auto;
+        justify-content: center;
+        font-size: 12px;
+        padding: 8px 10px;
+    }
+
+    .checklist-selector-bar {
+        padding: 12px;
+        gap: 12px;
+    }
+
+    .checklist-selector-bar .col-actions {
+        flex-wrap: wrap;
+    }
+
+    .checklist-selector-bar .col-actions .btn {
+        flex: 1 1 46%;
+        justify-content: center;
+        min-height: 40px;
+    }
+
+    .checklist-progress-bar-wrap,
+    .survey-sticky-bar {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 10px;
+        padding: 12px !important;
+    }
+
+    .survey-actions-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .survey-actions-group .btn {
+        flex: 1 1 auto;
+        min-height: 42px;
+        justify-content: center;
+    }
+
+    .survey-choice-row,
+    .choice-btn-group {
+        gap: 6px;
+    }
+
+    .survey-choice-btn,
+    .choice-btn {
+        min-height: 44px;
+        font-size: 13px;
+        padding: 10px 6px;
+    }
+
+    /* Prevent iOS Safari auto-zoom on input focus */
+    .input-field,
+    .select-field,
+    .textarea-field {
+        font-size: 16px;
+    }
+
+    /* Forms & Modals Mobile Fit */
+    .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .col-6 {
+        width: 100%;
+    }
+
+    .month-box {
+        padding: 14px;
+    }
+
+    .modal-content {
+        width: calc(100vw - 24px) !important;
+        max-width: calc(100vw - 24px) !important;
+        max-height: 88dvh;
+        overflow-y: auto;
+        padding: 18px 16px;
+        margin: 12px;
+    }
+}
+

@@ -5685,6 +5685,114 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     }
 
     // --------------------------------------------------------
+    // 모바일 & 태블릿 반응형 네비게이션 (슬라이드 드로어 + 하단 탭바)
+    // --------------------------------------------------------
+    (function initMobileResponsiveNav() {
+        const sidebarEl = document.getElementById("app-sidebar");
+        const backdropEl = document.getElementById("sidebar-backdrop");
+        const btnMenu = document.getElementById("btn-mobile-menu");
+        const btnCloseSidebar = document.getElementById("btn-close-sidebar");
+        const btnBottomMore = document.getElementById("btn-bottom-more-menu");
+        const mobileYearChip = document.getElementById("mobile-year-chip");
+        const bottomTabBtns = document.querySelectorAll(".mobile-bottom-item[data-tab]");
+
+        function openSidebarDrawer() {
+            if (sidebarEl) sidebarEl.classList.add("mobile-open");
+            if (backdropEl) backdropEl.classList.add("active");
+            document.body.classList.add("drawer-open");
+        }
+
+        function closeSidebarDrawer() {
+            if (sidebarEl) sidebarEl.classList.remove("mobile-open");
+            if (backdropEl) backdropEl.classList.remove("active");
+            document.body.classList.remove("drawer-open");
+        }
+
+        function syncBottomNavActive(tabName) {
+            bottomTabBtns.forEach(btn => {
+                btn.classList.toggle("active", btn.getAttribute("data-tab") === tabName);
+            });
+        }
+
+        function syncMobileYearChip() {
+            if (mobileYearChip && globalYearSelect) {
+                mobileYearChip.textContent = `${globalYearSelect.value}년`;
+            }
+        }
+
+        if (btnMenu) btnMenu.addEventListener("click", openSidebarDrawer);
+        if (btnBottomMore) btnBottomMore.addEventListener("click", openSidebarDrawer);
+        if (btnCloseSidebar) btnCloseSidebar.addEventListener("click", closeSidebarDrawer);
+        if (backdropEl) backdropEl.addEventListener("click", closeSidebarDrawer);
+
+        // 사이드바 메뉴 클릭 시 드로어 닫기 및 하단 탭바 동기화
+        navItems.forEach(item => {
+            item.addEventListener("click", () => {
+                const tab = item.getAttribute("data-tab");
+                if (tab) syncBottomNavActive(tab);
+                if (window.innerWidth <= 1024) {
+                    closeSidebarDrawer();
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+            });
+        });
+
+        // 사이드바 하단 이벤트 등록 버튼 클릭 시에도 드로어 닫기
+        const btnSideEvent = document.getElementById("btn-open-event-modal");
+        if (btnSideEvent) {
+            btnSideEvent.addEventListener("click", () => {
+                if (window.innerWidth <= 1024) closeSidebarDrawer();
+            });
+        }
+
+        // 하단 탭바 클릭 -> 대응하는 사이드바 탭 클릭 트리거
+        bottomTabBtns.forEach(btn => {
+            btn.addEventListener("click", () => {
+                const tab = btn.getAttribute("data-tab");
+                const targetNav = document.querySelector(`.nav-item[data-tab="${tab}"]`);
+                if (targetNav) {
+                    targetNav.click();
+                }
+                syncBottomNavActive(tab);
+            });
+        });
+
+        // 연도 칩 동기화 & 클릭 시 연도 선택기로 이동
+        if (globalYearSelect) {
+            syncMobileYearChip();
+            globalYearSelect.addEventListener("change", syncMobileYearChip);
+        }
+        if (mobileYearChip && globalYearSelect) {
+            mobileYearChip.addEventListener("click", () => {
+                globalYearSelect.scrollIntoView({ behavior: "smooth", block: "center" });
+                globalYearSelect.focus();
+            });
+        }
+
+        // 탭 전환 시 외부 호출(jumpToChecklist 등)에도 하단 탭바 상태 동기화
+        const navMenuEl = document.querySelector(".nav-menu");
+        if (navMenuEl && typeof MutationObserver !== "undefined") {
+            const obs = new MutationObserver(() => {
+                const activeNav = navMenuEl.querySelector(".nav-item.active");
+                if (activeNav) syncBottomNavActive(activeNav.getAttribute("data-tab"));
+            });
+            obs.observe(navMenuEl, { attributes: true, subtree: true, attributeFilter: ["class"] });
+        }
+
+        // 화면 회전/리사이즈 시 Leaflet 지도 크기 재계산
+        let resizeTimer = null;
+        window.addEventListener("resize", () => {
+            if (window.innerWidth > 1024) closeSidebarDrawer();
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (typeof leafletMap !== "undefined" && leafletMap && typeof leafletMap.invalidateSize === "function") {
+                    leafletMap.invalidateSize();
+                }
+            }, 250);
+        });
+    })();
+
+    // --------------------------------------------------------
     // 초기 로딩 실행 (인증 확인 후 로그인된 경우에만 탭 로드)
     // --------------------------------------------------------
     checkAuthStatus().then(() => {
