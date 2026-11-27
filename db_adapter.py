@@ -1,9 +1,41 @@
 import base64
+import http.client
 import json
 import os
 import sqlite3
-import urllib.error
-import urllib.request
+import threading
+import urllib.parse
+
+
+_tls = threading.local()
+
+
+def _get_http_conn(scheme: str, host: str, port, timeout: int):
+    pool = getattr(_tls, "http_conns", None)
+    if pool is None:
+        pool = {}
+        _tls.http_conns = pool
+    key = (scheme, host, port)
+    conn = pool.get(key)
+    if conn is None:
+        if scheme == "http":
+            conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        else:
+            conn = http.client.HTTPSConnection(host, port, timeout=timeout)
+        pool[key] = conn
+    return conn
+
+
+def _drop_http_conn(scheme: str, host: str, port):
+    pool = getattr(_tls, "http_conns", None)
+    if not pool:
+        return
+    conn = pool.pop((scheme, host, port), None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def _normalize_turso_url(url: str) -> str:
@@ -136,6 +168,11 @@ class TursoConnection:
     def __init__(self, url: str, auth_token: str, timeout: int = 20):
         self.base_url = _normalize_turso_url(url)
         self.endpoint = f"{self.base_url}/v2/pipeline"
+        parsed = urllib.parse.urlparse(self.endpoint)
+        self._scheme = parsed.scheme or "https"
+        self._host = parsed.hostname or ""
+        self._port = parsed.port
+        self._path = parsed.path or "/v2/pipeline"
         self.auth_token = auth_token.strip()
         self.timeout = timeout
         self.row_factory = None
@@ -144,28 +181,37 @@ class TursoConnection:
         requests_payload = [{"type": "execute", "stmt": s} for s in stmts]
         requests_payload.append({"type": "close"})
         body = json.dumps({"requests": requests_payload}).encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {self.auth_token}",
+            "Content-Type": "application/json",
+            "Connection": "keep-alive",
+        }
 
-        req = urllib.request.Request(
-            self.endpoint,
-            data=body,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self.auth_token}",
-                "Content-Type": "application/json",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            err_body = ""
+        resp_bytes = None
+        status = 0
+        for attempt in range(2):
+            http_conn = _get_http_conn(self._scheme, self._host, self._port, self.timeout)
             try:
-                err_body = e.read().decode("utf-8", errors="ignore")
-            except Exception:
-                pass
-            raise sqlite3.OperationalError(f"Turso HTTP {e.code}: {err_body}") from e
-        except Exception as e:
-            raise sqlite3.OperationalError(f"Turso connection error: {e}") from e
+                http_conn.request("POST", self._path, body=body, headers=headers)
+                resp = http_conn.getresponse()
+                status = resp.status
+                resp_bytes = resp.read()
+                if resp.will_close:
+                    _drop_http_conn(self._scheme, self._host, self._port)
+                break
+            except (http.client.HTTPException, OSError) as e:
+                _drop_http_conn(self._scheme, self._host, self._port)
+                if attempt == 1:
+                    raise sqlite3.OperationalError(f"Turso connection error: {e}") from e
+            except Exception as e:
+                _drop_http_conn(self._scheme, self._host, self._port)
+                raise sqlite3.OperationalError(f"Turso connection error: {e}") from e
+
+        if status >= 400:
+            err_body = (resp_bytes or b"").decode("utf-8", errors="ignore")
+            raise sqlite3.OperationalError(f"Turso HTTP {status}: {err_body}")
+
+        data = json.loads((resp_bytes or b"{}").decode("utf-8"))
 
         results = data.get("results", [])
         parsed = []
@@ -180,12 +226,17 @@ class TursoConnection:
         return parsed
 
     def execute_batch(self, statements):
-        """statements: list of (sql, params_tuple_or_None)"""
+        """statements: list of (sql, params_tuple_dict_or_None)"""
         stmts = []
         for sql, params in statements:
             stmt = {"sql": sql}
             if params:
-                stmt["args"] = [_encode_arg(v) for v in params]
+                if isinstance(params, dict):
+                    stmt["named_args"] = [
+                        {"name": k, "value": _encode_arg(v)} for k, v in params.items()
+                    ]
+                else:
+                    stmt["args"] = [_encode_arg(v) for v in params]
             stmts.append(stmt)
         if not stmts:
             return []
@@ -205,6 +256,26 @@ class TursoConnection:
         pass
 
 
+def _result_to_rows(result):
+    cols = [c.get("name") for c in result.get("cols", [])]
+    return [TursoRow(cols, [_decode_cell(cell) for cell in r]) for r in result.get("rows", [])]
+
+
+def execute_batch_rows(conn, statements):
+    """단일 왕복(Turso) 또는 단일 연결(SQLite)로 다수 SQL을 일괄 실행하고 각 쿼리의 행 리스트 반환"""
+    if isinstance(conn, TursoConnection):
+        return [_result_to_rows(res) for res in conn.execute_batch(statements)]
+    results = []
+    c = conn.cursor()
+    try:
+        for sql, params in statements:
+            c.execute(sql, params or ())
+            results.append(c.fetchall() if c.description else [])
+    finally:
+        c.close()
+    return results
+
+
 def get_db_connection(local_db_path: str):
     """환경변수(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)가 있으면 Turso, 없으면 로컬 SQLite 연결"""
     if is_turso_enabled():
@@ -212,6 +283,6 @@ def get_db_connection(local_db_path: str):
             os.environ["TURSO_DATABASE_URL"],
             os.environ["TURSO_AUTH_TOKEN"],
         )
-    conn = sqlite3.connect(local_db_path)
+    conn = sqlite3.connect(local_db_path, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn

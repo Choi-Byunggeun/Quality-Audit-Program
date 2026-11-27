@@ -35,9 +35,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const thisMonthTableBody = document.getElementById("this-month-table-body");
 
     // 월드맵 요소
-    const worldMapImg = document.getElementById("world-map-img");
-    const mapMarkersLayer = document.getElementById("map-markers-layer");
-    const mapTooltip = document.getElementById("map-tooltip");
     const mapTargetCountBadge = document.getElementById("map-target-count-badge");
     const mapYearLbl = document.getElementById("map-year-lbl");
     const mapMonthLbl = document.getElementById("map-month-lbl");
@@ -282,11 +279,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     /** 카테고리 배지 HTML 생성 */
     function getCategoryBadgeHtml(categoryStr) {
+        const safeCat = escapeHtml(categoryStr);
         const meta = resolveCategoryMeta(categoryStr);
         if (meta) {
-            return `<span class="cat-badge ${meta.badgeClass}"><i class="fa-solid ${meta.icon}"></i> ${categoryStr}</span>`;
+            return `<span class="cat-badge ${meta.badgeClass}"><i class="fa-solid ${meta.icon}"></i> ${safeCat}</span>`;
         }
-        return `<span class="badge badge-blue" style="font-size:11px;">${categoryStr}</span>`;
+        return `<span class="badge badge-blue" style="font-size:11px;">${safeCat}</span>`;
     }
 
     function resolveStation(stationName, category) {
@@ -350,69 +348,241 @@ document.addEventListener("DOMContentLoaded", () => {
         return { name: stationName, country: "대한민국", continent: "아시아", lat: 36.5, lon: 127.5, code: "KOR" };
     }
 
-    function latLonToPercent(lat, lon) {
-        // 태평양 중심 지도(map.webp) 기준 투영 (Left edge = -30° lon)
-        const normLon = (lon - (-30) + 360) % 360;
-        const xPct = (normLon / 360.0) * 100.0;
-        
-        // Miller 도법 기준 위도(lat) Y% 계산
-        const rad = (lat * Math.PI) / 180.0;
-        const millerY = 1.25 * Math.log(Math.tan(Math.PI / 4.0 + 0.4 * rad));
-        const yPct = 56.0 - (millerY * 19.5);
-        
-        return { 
-            x: Math.max(2, Math.min(98, xPct)), 
-            y: Math.max(2, Math.min(98, yPct)) 
-        };
+    // --------------------------------------------------------
+    // 보안 · 토스트 · 공용 모달 · 버튼 상태 · 캐시 유틸리티
+    // --------------------------------------------------------
+    function escapeHtml(val) {
+        return String(val ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
     }
 
-    // --------------------------------------------------------
-    // 토스트 알림 헬퍼 함수
-    // --------------------------------------------------------
     function showToast(message, type = 'info') {
         const container = document.getElementById('toast-container');
         if (!container) return;
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        const icon = type === 'success' ? 'fa-circle-check' : (type === 'error' ? 'fa-triangle-exclamation' : 'fa-circle-info');
-        toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${message}</span>`;
+        const icon = type === 'success'
+            ? 'fa-circle-check'
+            : (type === 'error' ? 'fa-triangle-exclamation' : (type === 'warning' ? 'fa-circle-exclamation' : 'fa-circle-info'));
+        const iconEl = document.createElement('i');
+        iconEl.className = `fa-solid ${icon}`;
+        const textEl = document.createElement('span');
+        textEl.textContent = String(message ?? '');
+        toast.appendChild(iconEl);
+        toast.appendChild(textEl);
         container.appendChild(toast);
         setTimeout(() => {
             toast.style.opacity = '0';
             toast.style.transform = 'translateY(10px)';
-            toast.style.transition = 'all 0.3s ease';
+            toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
             setTimeout(() => toast.remove(), 300);
         }, 3500);
     }
 
+    function setButtonLoading(btn, isLoading, loadingHtml = '<i class="fa-solid fa-spinner fa-spin"></i> 처리 중...') {
+        if (!btn) return;
+        if (isLoading) {
+            if (!btn.dataset.origHtml) btn.dataset.origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = loadingHtml;
+        } else {
+            btn.disabled = false;
+            if (btn.dataset.origHtml) {
+                btn.innerHTML = btn.dataset.origHtml;
+                delete btn.dataset.origHtml;
+            }
+        }
+    }
+
+    let activeAppDialogResolver = null;
+    function openAppDialog({ mode = 'confirm', title = '확인', message = '', defaultValue = '', placeholder = '', okText = '확인', danger = false }) {
+        const modal = document.getElementById('app-dialog-modal');
+        if (!modal) {
+            if (mode === 'prompt') return Promise.resolve(window.prompt(message, defaultValue));
+            return Promise.resolve(window.confirm(message));
+        }
+        if (activeAppDialogResolver) {
+            activeAppDialogResolver(mode === 'prompt' ? null : false);
+            activeAppDialogResolver = null;
+        }
+        const titleEl = document.getElementById('app-dialog-title');
+        const msgEl = document.getElementById('app-dialog-message');
+        const inputWrap = document.getElementById('app-dialog-input-wrap');
+        const inputEl = document.getElementById('app-dialog-input');
+        const okBtn = document.getElementById('btn-ok-app-dialog');
+        const cancelBtn = document.getElementById('btn-cancel-app-dialog');
+        const closeBtn = document.getElementById('btn-close-app-dialog');
+
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        okBtn.textContent = okText;
+        okBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+
+        if (mode === 'prompt') {
+            inputWrap.style.display = 'block';
+            inputEl.value = defaultValue || '';
+            inputEl.placeholder = placeholder || '';
+        } else {
+            inputWrap.style.display = 'none';
+            inputEl.value = '';
+        }
+
+        modal.classList.add('active');
+        setTimeout(() => {
+            if (mode === 'prompt') {
+                inputEl.focus();
+                inputEl.select();
+            } else {
+                okBtn.focus();
+            }
+        }, 20);
+
+        return new Promise(resolve => {
+            const finish = (val) => {
+                modal.classList.remove('active');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                closeBtn.removeEventListener('click', onCancel);
+                modal.removeEventListener('click', onBackdrop);
+                inputEl.removeEventListener('keydown', onInputKey);
+                activeAppDialogResolver = null;
+                resolve(val);
+            };
+            const onOk = () => finish(mode === 'prompt' ? inputEl.value : true);
+            const onCancel = () => finish(mode === 'prompt' ? null : false);
+            const onBackdrop = (e) => { if (e.target === modal) onCancel(); };
+            const onInputKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); onOk(); } };
+
+            activeAppDialogResolver = finish;
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            closeBtn.addEventListener('click', onCancel);
+            modal.addEventListener('click', onBackdrop);
+            if (mode === 'prompt') inputEl.addEventListener('keydown', onInputKey);
+        });
+    }
+
+    function showConfirmModal(message, opts = {}) {
+        return openAppDialog({ mode: 'confirm', message, ...opts });
+    }
+
+    function showPromptModal(message, defaultValue = '', opts = {}) {
+        return openAppDialog({ mode: 'prompt', message, defaultValue, ...opts });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const dialog = document.getElementById('app-dialog-modal');
+        if (dialog && dialog.classList.contains('active') && activeAppDialogResolver) {
+            activeAppDialogResolver(document.getElementById('app-dialog-input-wrap').style.display === 'block' ? null : false);
+            return;
+        }
+        document.querySelectorAll('.modal.active').forEach(m => {
+            if (m.id === 'login-modal' && !currentUser) return;
+            m.classList.remove('active');
+        });
+    });
+
     // --------------------------------------------------------
-    // API 통신 공통 함수 (토큰 자동 첨부)
+    // API 통신 · 클라이언트 TTL 캐시 · 요청 취소(AbortController)
     // --------------------------------------------------------
     let currentUser = null;
     let authToken = localStorage.getItem("audit_auth_token") || "";
+    const API_CACHE_TTL_MS = 60_000;
+    const apiCache = new Map();
+    let activeTabAbortController = null;
+    let tabLoadSeq = 0;
+
+    function isApiCachedFresh(url) {
+        const cached = apiCache.get(url);
+        return Boolean(cached && (Date.now() - cached.ts) < API_CACHE_TTL_MS);
+    }
+
+    function dropCacheByPrefixes(prefixes) {
+        for (const key of apiCache.keys()) {
+            if (prefixes.some(p => key.startsWith(p))) {
+                apiCache.delete(key);
+            }
+        }
+    }
+
+    function invalidateDataCache(scope = 'all') {
+        if (scope === 'all') {
+            apiCache.clear();
+            multiYearScheduleMap = {};
+            allTargets = [];
+            checklistAllTargets = [];
+            _yearViewCalendarCache = null;
+            analysisTreeData = null;
+            allAuditors = [];
+            return;
+        }
+        if (scope === 'schedule') {
+            dropCacheByPrefixes(['/api/dashboard', '/api/calendar', '/api/multi_year_schedule', '/api/list', '/api/targets/tree', '/api/targets/']);
+            multiYearScheduleMap = {};
+            _yearViewCalendarCache = null;
+        } else if (scope === 'target') {
+            dropCacheByPrefixes(['/api/targets', '/api/dashboard', '/api/calendar', '/api/multi_year_schedule', '/api/list']);
+            allTargets = [];
+            checklistAllTargets = [];
+            multiYearScheduleMap = {};
+            analysisTreeData = null;
+            _yearViewCalendarCache = null;
+        } else if (scope === 'auditor') {
+            dropCacheByPrefixes(['/api/auditors', '/api/users']);
+        } else if (scope === 'user') {
+            dropCacheByPrefixes(['/api/users']);
+        } else if (scope === 'finding') {
+            dropCacheByPrefixes(['/api/targets/tree', '/api/targets/']);
+        } else if (scope === 'checklist') {
+            dropCacheByPrefixes(['/api/checklists/']);
+        }
+    }
 
     async function apiFetch(url, options = {}) {
+        const { noCache = false, silent = false, ...fetchOptions } = options;
+        const method = (fetchOptions.method || 'GET').toUpperCase();
+        const isGet = method === 'GET';
+
+        if (isGet && !noCache) {
+            const cached = apiCache.get(url);
+            if (cached && (Date.now() - cached.ts) < API_CACHE_TTL_MS) {
+                return cached.data;
+            }
+        }
+
         try {
-            const headers = options.headers || {};
+            const headers = { ...(fetchOptions.headers || {}) };
             if (authToken) {
                 headers["Authorization"] = `Bearer ${authToken}`;
             }
-            if (options.body && typeof options.body === 'string' && !headers['Content-Type']) {
+            if (fetchOptions.body && typeof fetchOptions.body === 'string' && !headers['Content-Type']) {
                 headers['Content-Type'] = 'application/json';
             }
-            options.headers = headers;
+            fetchOptions.headers = headers;
 
-            const response = await fetch(url, options);
+            const response = await fetch(url, fetchOptions);
             if (!response.ok) {
                 const errData = await response.json().catch(() => ({}));
                 const errMsg = errData.detail || response.statusText;
-                showToast(`오류: ${errMsg}`, 'error');
+                if (!silent) showToast(`오류: ${errMsg}`, 'error');
                 return null;
             }
-            return await response.json();
+            const json = await response.json();
+            if (isGet) {
+                apiCache.set(url, { data: json, ts: Date.now() });
+            }
+            return json;
         } catch (error) {
+            if (error && error.name === 'AbortError') {
+                return null;
+            }
             console.error("API 요청 실패:", error);
-            showToast("서버와 통신할 수 없습니다. 백엔드 서버 상태를 확인해주세요.", 'error');
+            if (!silent) showToast("서버와 통신할 수 없습니다. 백엔드 서버 상태를 확인해주세요.", 'error');
             return null;
         }
     }
@@ -483,31 +653,38 @@ document.addEventListener("DOMContentLoaded", () => {
         loadTabData();
     });
 
-    function loadTabData() {
+    function loadTabData(forceRefresh = false) {
+        if (activeTabAbortController) {
+            activeTabAbortController.abort();
+        }
+        activeTabAbortController = new AbortController();
+        const signal = activeTabAbortController.signal;
+        tabLoadSeq += 1;
+
         if (currentTab === "dashboard") {
-            loadDashboardData();
+            loadDashboardData(signal);
         } else if (currentTab === "mypage") {
-            loadMyPageData();
+            loadMyPageData(signal, forceRefresh);
         } else if (currentTab === "checklist") {
-            loadChecklistTab();
+            loadChecklistTab(null, null, signal);
         } else if (currentTab === "analysis") {
-            loadAnalysisTreeData();
+            loadAnalysisTreeData(signal);
         } else if (currentTab === "calendar") {
             if (planSubView === "matrix") {
-                loadMatrixData();
+                loadMatrixData(signal);
             } else if (planSubView === "year") {
-                loadYearViewData();
+                loadYearViewData(signal);
             } else {
-                loadCalendarData();
+                loadCalendarData(signal);
             }
         } else if (currentTab === "list") {
-            loadListData();
+            loadListData(signal);
         } else if (currentTab === "manage") {
-            loadManageData();
+            loadManageData(signal);
         } else if (currentTab === "auditors") {
-            loadAuditorData();
+            loadAuditorData(signal);
         } else if (currentTab === "users") {
-            loadUsersTable();
+            loadUsersTable(signal, forceRefresh);
         }
     }
 
@@ -519,6 +696,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let mapPanelAuditTypeFilter = "all"; // 'all' | '직접' | '간접'
     let showMapFlightRoutes = true;
     let markerByTargetId = {}; // target_id -> { marker, lat, lon }
+    let thisMonthAuditsByTid = new Map();
 
     function syncYearSelectorsUI() {
         if (globalYearSelect && globalYearSelect.value !== String(selectedYear)) {
@@ -533,80 +711,119 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    async function ensureMultiYearScheduleLoaded() {
-        if (Object.keys(multiYearScheduleMap).length > 0) return;
-        const rows = await apiFetch("/api/multi_year_schedule?start_year=2026&end_year=2030");
+    async function ensureMultiYearScheduleLoaded(signal) {
+        const url = "/api/multi_year_schedule?start_year=2026&end_year=2030";
+        if (Object.keys(multiYearScheduleMap).length > 0 && isApiCachedFresh(url)) return;
+        const rows = await apiFetch(url, { signal });
         if (Array.isArray(rows)) {
+            multiYearScheduleMap = {};
             rows.forEach(r => {
                 multiYearScheduleMap[r.id] = r.schedule || {};
             });
         }
     }
 
-    async function loadDashboardData() {
+    function buildCalendarFromYearAudits(audits) {
+        const cal = {};
+        for (let m = 1; m <= 12; m++) cal[m] = [];
+        (audits || []).forEach(item => {
+            let month = 6;
+            let day = 1;
+            if (item.scheduled_date && item.scheduled_date.includes("-")) {
+                const parts = item.scheduled_date.split("-");
+                const mNum = parseInt(parts[1], 10);
+                const dNum = parseInt(parts[2], 10);
+                if (mNum >= 1 && mNum <= 12) month = mNum;
+                if (!isNaN(dNum)) day = dNum;
+            }
+            cal[month].push({ ...item, day });
+        });
+        return cal;
+    }
+
+    if (thisMonthTableBody) {
+        thisMonthTableBody.addEventListener("mouseover", (e) => {
+            const tr = e.target.closest("tr[data-target-id]");
+            if (tr) highlightMapPin(tr.getAttribute("data-target-id"), true);
+        });
+        thisMonthTableBody.addEventListener("mouseout", (e) => {
+            const tr = e.target.closest("tr[data-target-id]");
+            if (tr) highlightMapPin(tr.getAttribute("data-target-id"), false);
+        });
+        thisMonthTableBody.addEventListener("click", (e) => {
+            const tr = e.target.closest("tr[data-target-id]");
+            if (!tr) return;
+            const audit = thisMonthAuditsByTid.get(parseInt(tr.getAttribute("data-target-id"), 10));
+            if (audit) openDetailModal(audit);
+        });
+    }
+
+    async function loadDashboardData(signal) {
         syncYearSelectorsUI();
+        const dashUrl = `/api/dashboard?year=${selectedYear}`;
+        if (!isApiCachedFresh(dashUrl) && thisMonthTableBody) {
+            thisMonthTableBody.innerHTML = `<tr><td colspan="7" class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> 대시보드 데이터를 불러오는 중입니다...</td></tr>`;
+        }
         const [data] = await Promise.all([
-            apiFetch(`/api/dashboard?year=${selectedYear}`),
-            ensureMultiYearScheduleLoaded()
+            apiFetch(dashUrl, { signal }),
+            ensureMultiYearScheduleLoaded(signal)
         ]);
         if (!data) return;
 
+        let viewData = data;
         // 2024, 2025년 등 과거 실적 연도는 실제 수행 기록(id != null)만 필터링
         if (parseInt(selectedYear, 10) < 2026 && Array.isArray(data.year_audits)) {
             const realAudits = data.year_audits.filter(a => a.id !== null && a.id !== undefined);
             if (realAudits.length > 0) {
-                data.year_audits = realAudits;
                 const dCnt = realAudits.filter(a => a.audit_type === "직접").length;
                 const iCnt = realAudits.filter(a => a.audit_type !== "직접").length;
-                data.stats = {
-                    total: realAudits.length,
-                    direct: dCnt,
-                    indirect: iCnt
+                viewData = {
+                    ...data,
+                    year_audits: realAudits,
+                    stats: { total: realAudits.length, direct: dCnt, indirect: iCnt }
                 };
             }
         }
 
-        latestDashboardData = data;
+        latestDashboardData = viewData;
 
-        statTotal.textContent = data.stats.total;
-        statDirect.textContent = data.stats.direct;
-        statIndirect.textContent = data.stats.indirect;
+        statTotal.textContent = viewData.stats.total;
+        statDirect.textContent = viewData.stats.direct;
+        statIndirect.textContent = viewData.stats.indirect;
 
-        currentMonthLbl.textContent = data.current_month;
-        monthCountBadge.textContent = `${data.this_month_audits.length}건`;
+        currentMonthLbl.textContent = viewData.current_month;
+        monthCountBadge.textContent = `${viewData.this_month_audits.length}건`;
 
+        thisMonthAuditsByTid = new Map();
         thisMonthTableBody.innerHTML = "";
-        if (data.this_month_audits.length === 0) {
+        if (viewData.this_month_audits.length === 0) {
             thisMonthTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-secondary);">이번 달 실시 예정인 심사가 없습니다.</td></tr>`;
         } else {
-            data.this_month_audits.forEach(audit => {
+            const frag = document.createDocumentFragment();
+            viewData.this_month_audits.forEach(audit => {
+                thisMonthAuditsByTid.set(audit.target_id, audit);
                 const tr = document.createElement("tr");
                 tr.setAttribute("data-target-id", audit.target_id);
                 tr.innerHTML = `
-                    <td>${audit.category}</td>
-                    <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${audit.operation_status}</span></td>
-                    <td style="font-weight:600;">${audit.station_name}</td>
-                    <td><span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}">${audit.symbol} ${audit.audit_type}</span></td>
-                    <td>${audit.scheduled_date}</td>
-                    <td><i class="fa-solid fa-user-gear"></i> ${audit.auditor || '-'}</td>
-                    <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}">${audit.status}</span></td>
+                    <td>${escapeHtml(audit.category)}</td>
+                    <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${escapeHtml(audit.operation_status)}</span></td>
+                    <td style="font-weight:600;">${escapeHtml(audit.station_name)}</td>
+                    <td><span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}">${escapeHtml(audit.symbol)} ${escapeHtml(audit.audit_type)}</span></td>
+                    <td>${escapeHtml(audit.scheduled_date)}</td>
+                    <td><i class="fa-solid fa-user-gear"></i> ${escapeHtml(audit.auditor || '-')}</td>
+                    <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}">${escapeHtml(audit.status)}</span></td>
                 `;
-                tr.addEventListener("mouseenter", () => highlightMapPin(audit.target_id, true));
-                tr.addEventListener("mouseleave", () => highlightMapPin(audit.target_id, false));
-                tr.addEventListener("click", () => openDetailModal(audit));
-                thisMonthTableBody.appendChild(tr);
+                frag.appendChild(tr);
             });
+            thisMonthTableBody.appendChild(frag);
         }
 
         renderWorldMap();
 
-        // Monthly timeline bar chart on dashboard
-        const calendarData = await apiFetch(`/api/calendar?year=${selectedYear}`);
-        if (calendarData) {
-            const tlBadge = document.getElementById("timeline-year-badge");
-            if (tlBadge) tlBadge.textContent = `${selectedYear}년`;
-            renderMonthlyTimelineChart(calendarData, "monthly-timeline-chart", null);
-        }
+        const calendarData = buildCalendarFromYearAudits(viewData.year_audits || []);
+        const tlBadge = document.getElementById("timeline-year-badge");
+        if (tlBadge) tlBadge.textContent = `${selectedYear}년`;
+        renderMonthlyTimelineChart(calendarData, "monthly-timeline-chart", null);
     }
 
     // --------------------------------------------------------
@@ -706,6 +923,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (zBadge && leafletMap) {
                     zBadge.textContent = `Lv ${leafletMap.getZoom()}`;
                 }
+            });
+
+            container.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-action="open-target-detail"]');
+                if (!btn) return;
+                const tid = parseInt(btn.getAttribute('data-target-id'), 10);
+                if (!isNaN(tid)) window.__openTargetDetail(tid);
             });
         }
     }
@@ -933,17 +1157,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 const popupHtml = `
                     <div style="font-family:'Outfit','Noto Sans KR',sans-serif; min-width:255px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.1);">
-                            <strong style="font-size:14px; color:#ffffff;">${item.station_name}</strong>
+                            <strong style="font-size:14px; color:#ffffff;">${escapeHtml(item.station_name)}</strong>
                             <div>${auditTypeBadge}${monthBadge}</div>
                         </div>
-                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">조회연도: <strong style="color:#00f2fe;">${selectedYear}년 품질심사</strong></div>
-                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">위치/국가: <strong style="color:#f8fafc;">${item.locInfo.country} (${item.locInfo.name || item.locInfo.code})</strong></div>
-                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">심사분야: <strong style="color:#f8fafc;">${item.category}</strong></div>
-                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">예정일자: <strong style="color:#38bdf8;">${item.scheduled_date || '-'}</strong> <span style="font-size:11px; color:#cbd5e1;">(${item.status || '계획'})</span></div>
-                        <div style="font-size:12px; color:#94a3b8; margin-bottom:4px;">담당심사원: <strong style="color:#f8fafc;">${item.auditor || '미정'}</strong></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">조회연도: <strong style="color:#00f2fe;">${escapeHtml(selectedYear)}년 품질심사</strong></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">위치/국가: <strong style="color:#f8fafc;">${escapeHtml(item.locInfo.country)} (${escapeHtml(item.locInfo.name || item.locInfo.code)})</strong></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">심사분야: <strong style="color:#f8fafc;">${escapeHtml(item.category)}</strong></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:3px;">예정일자: <strong style="color:#38bdf8;">${escapeHtml(item.scheduled_date || '-')}</strong> <span style="font-size:11px; color:#cbd5e1;">(${escapeHtml(item.status || '계획')})</span></div>
+                        <div style="font-size:12px; color:#94a3b8; margin-bottom:4px;">담당심사원: <strong style="color:#f8fafc;">${escapeHtml(item.auditor || '미정')}</strong></div>
                         ${multiYearStripHtml}
-                        <button class="btn btn-primary btn-sm btn-block" style="font-size:11px; padding:5px 8px; border-radius:6px; cursor:pointer;" onclick="window.__openTargetDetail(${item.target_id})">
-                            <i class="fa-solid fa-pen-to-square"></i> ${selectedYear}년 심사 상세 및 롤링 수정
+                        <button class="btn btn-primary btn-sm btn-block" style="font-size:11px; padding:5px 8px; border-radius:6px; cursor:pointer;" data-action="open-target-detail" data-target-id="${item.target_id}">
+                            <i class="fa-solid fa-pen-to-square"></i> ${escapeHtml(selectedYear)}년 심사 상세 및 롤링 수정
                         </button>
                     </div>
                 `;
@@ -980,6 +1204,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         listEl.innerHTML = "";
+        const frag = document.createDocumentFragment();
         sorted.forEach(item => {
             const isDirect = item.audit_type === "직접";
             const row = document.createElement("div");
@@ -1000,37 +1225,50 @@ document.addEventListener("DOMContentLoaded", () => {
                         ${isDirect ? '✦ 직접' : '◎ 간접'}
                     </span>
                     <div class="map-y-item-info">
-                        <div class="map-y-item-station" title="${item.station_name}">${item.station_name}</div>
-                        <div class="map-y-item-sub">${item.locInfo.country} · ${item.category}</div>
+                        <div class="map-y-item-station" title="${escapeHtml(item.station_name)}">${escapeHtml(item.station_name)}</div>
+                        <div class="map-y-item-sub">${escapeHtml(item.locInfo.country)} · ${escapeHtml(item.category)}</div>
                     </div>
                 </div>
                 <div class="map-y-item-right">
-                    <span class="map-y-item-date">${dateDisplay}</span>
-                    <span class="map-y-item-auditor">${item.auditor || item.status || '계획'}</span>
+                    <span class="map-y-item-date">${escapeHtml(dateDisplay)}</span>
+                    <span class="map-y-item-auditor">${escapeHtml(item.auditor || item.status || '계획')}</span>
                 </div>
             `;
 
-            row.addEventListener("mouseenter", () => highlightMapPin(item.target_id, true));
-            row.addEventListener("mouseleave", () => highlightMapPin(item.target_id, false));
-            row.addEventListener("click", () => {
-                const entry = markerByTargetId[item.target_id];
-                if (entry && leafletMap) {
-                    leafletMap.flyTo([entry.lat, entry.lon], Math.max(leafletMap.getZoom(), 5), { duration: 0.75 });
-                    setTimeout(() => {
-                        entry.marker.openPopup();
-                    }, 400);
-                }
-            });
+            frag.appendChild(row);
+        });
+        listEl.appendChild(frag);
+    }
 
-            listEl.appendChild(row);
+    const mapYearlyListEl = document.getElementById("map-yearly-list");
+    if (mapYearlyListEl) {
+        mapYearlyListEl.addEventListener("mouseover", (e) => {
+            const row = e.target.closest(".map-yearly-item[data-target-id]");
+            if (row) highlightMapPin(row.getAttribute("data-target-id"), true);
+        });
+        mapYearlyListEl.addEventListener("mouseout", (e) => {
+            const row = e.target.closest(".map-yearly-item[data-target-id]");
+            if (row) highlightMapPin(row.getAttribute("data-target-id"), false);
+        });
+        mapYearlyListEl.addEventListener("click", (e) => {
+            const row = e.target.closest(".map-yearly-item[data-target-id]");
+            if (!row) return;
+            const entry = markerByTargetId[row.getAttribute("data-target-id")];
+            if (entry && leafletMap) {
+                leafletMap.flyTo([entry.lat, entry.lon], Math.max(leafletMap.getZoom(), 5), { duration: 0.75 });
+                setTimeout(() => entry.marker.openPopup(), 400);
+            }
         });
     }
 
     // 전역 팝업 버튼 핸들러
     window.__openTargetDetail = function(targetId) {
         if (!latestDashboardData) return;
-        const target = (latestDashboardData.year_audits || []).find(a => a.target_id === targetId) 
-                    || (allTargets || []).find(t => t.id === targetId);
+        let target = (latestDashboardData.year_audits || []).find(a => a.target_id === targetId);
+        if (!target) {
+            const base = (allTargets || []).find(t => t.id === targetId);
+            if (base) target = { ...base, target_id: base.id, id: null };
+        }
         if (target) {
             openDetailModal(target);
         }
@@ -1259,12 +1497,57 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btnViewCalendar) btnViewCalendar.addEventListener("click", () => switchPlanView("calendar"));
 
     // 2.1 2026~2030 5개년 롤링 매트릭스 렌더링
-    async function loadMatrixData() {
-        matrixTableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:30px;">2026~2030 5개년 롤링 스케줄을 계산 중입니다...</td></tr>`;
-        const multiSchedule = await apiFetch(`/api/multi_year_schedule?start_year=2026&end_year=2030`);
+    if (matrixTableBody) {
+        matrixTableBody.addEventListener("click", (e) => {
+            const btn = e.target.closest(".matrix-cell-btn, .matrix-cell-empty-btn");
+            if (!btn) return;
+            e.stopPropagation();
+            const isEmpty = btn.classList.contains("matrix-cell-empty-btn");
+            const targetYear = btn.getAttribute("data-year");
+            const auditObj = isEmpty
+                ? {
+                    id: null,
+                    target_id: parseInt(btn.getAttribute("data-target-id"), 10),
+                    station_name: btn.getAttribute("data-station-name"),
+                    category: btn.getAttribute("data-category"),
+                    operation_status: btn.getAttribute("data-op-status"),
+                    audit_type: "직접",
+                    status: "계획",
+                    scheduled_date: `${targetYear}-06-01`,
+                    auditor: "",
+                    remarks: "수동 신규 편성"
+                }
+                : {
+                    id: btn.getAttribute("data-audit-id") ? parseInt(btn.getAttribute("data-audit-id"), 10) : null,
+                    target_id: parseInt(btn.getAttribute("data-target-id"), 10),
+                    station_name: btn.getAttribute("data-station-name"),
+                    category: btn.getAttribute("data-category"),
+                    operation_status: btn.getAttribute("data-op-status"),
+                    audit_type: btn.getAttribute("data-audit-type"),
+                    status: btn.getAttribute("data-status"),
+                    scheduled_date: btn.getAttribute("data-scheduled-date"),
+                    auditor: btn.getAttribute("data-auditor"),
+                    remarks: btn.getAttribute("data-remarks")
+                };
+            selectedYear = targetYear;
+            if (globalYearSelect) globalYearSelect.value = selectedYear;
+            openDetailModal(auditObj);
+        });
+    }
+
+    async function loadMatrixData(signal) {
+        const url = "/api/multi_year_schedule?start_year=2026&end_year=2030";
+        if (!isApiCachedFresh(url)) {
+            matrixTableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> 2026~2030 5개년 롤링 스케줄을 계산 중입니다...</td></tr>`;
+        }
+        const multiSchedule = await apiFetch(url, { signal });
         if (!multiSchedule) return;
 
+        multiYearScheduleMap = {};
+        multiSchedule.forEach(r => { multiYearScheduleMap[r.id] = r.schedule || {}; });
+
         matrixTableBody.innerHTML = "";
+        const frag = document.createDocumentFragment();
 
         multiSchedule.forEach((item, idx) => {
             const tr = document.createElement("tr");
@@ -1289,18 +1572,18 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="text-align:center;">
                             <button class="btn btn-xs ${badgeClass} matrix-cell-btn" 
                                 data-target-id="${item.id}" 
-                                data-station-name="${item.station_name}"
-                                data-category="${item.category}"
-                                data-op-status="${item.operation_status}"
+                                data-station-name="${escapeHtml(item.station_name)}"
+                                data-category="${escapeHtml(item.category)}"
+                                data-op-status="${escapeHtml(item.operation_status)}"
                                 data-year="${y}" 
                                 data-audit-id="${s.id || ''}"
-                                data-audit-type="${s.audit_type}"
-                                data-status="${s.status}"
-                                data-scheduled-date="${s.scheduled_date}"
-                                data-auditor="${s.auditor || ''}"
-                                data-remarks="${s.remarks || ''}"
-                                title="${y}년 ${s.audit_type}심사 (${s.scheduled_date}) - 클릭 시 수정 및 롤링">
-                                ${s.symbol} ${s.audit_type}${isManual}
+                                data-audit-type="${escapeHtml(s.audit_type)}"
+                                data-status="${escapeHtml(s.status)}"
+                                data-scheduled-date="${escapeHtml(s.scheduled_date)}"
+                                data-auditor="${escapeHtml(s.auditor || '')}"
+                                data-remarks="${escapeHtml(s.remarks || '')}"
+                                title="${y}년 ${escapeHtml(s.audit_type)}심사 (${escapeHtml(s.scheduled_date)}) - 클릭 시 수정 및 롤링">
+                                ${escapeHtml(s.symbol)} ${escapeHtml(s.audit_type)}${isManual}
                             </button>
                         </td>
                     `;
@@ -1309,9 +1592,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td style="text-align:center;">
                             <button class="btn btn-xs btn-outline matrix-cell-empty-btn" 
                                 data-target-id="${item.id}" 
-                                data-station-name="${item.station_name}"
-                                data-category="${item.category}"
-                                data-op-status="${item.operation_status}"
+                                data-station-name="${escapeHtml(item.station_name)}"
+                                data-category="${escapeHtml(item.category)}"
+                                data-op-status="${escapeHtml(item.operation_status)}"
                                 data-year="${y}" 
                                 title="${y}년 계획 수동 추가 (클릭 시 이후 롤링 계산)">
                                 -
@@ -1323,67 +1606,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
             tr.innerHTML = `
                 <td>${idx + 1}</td>
-                <td><span class="badge badge-blue" style="font-size:11px;">${item.category}</span></td>
-                <td><span class="badge ${item.operation_status === '운항' ? 'badge-green' : 'badge-orange'}" style="font-size:11px;">${item.operation_status}</span></td>
-                <td style="font-weight:600;">${item.station_name}</td>
+                <td><span class="badge badge-blue" style="font-size:11px;">${escapeHtml(item.category)}</span></td>
+                <td><span class="badge ${item.operation_status === '운항' ? 'badge-green' : 'badge-orange'}" style="font-size:11px;">${escapeHtml(item.operation_status)}</span></td>
+                <td style="font-weight:600;">${escapeHtml(item.station_name)}</td>
                 <td>${intervalBadge}</td>
                 ${yearCellsHtml}
             `;
 
-            tr.querySelectorAll(".matrix-cell-btn").forEach(btn => {
-                btn.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    const auditObj = {
-                        id: btn.getAttribute("data-audit-id") ? parseInt(btn.getAttribute("data-audit-id")) : null,
-                        target_id: parseInt(btn.getAttribute("data-target-id")),
-                        station_name: btn.getAttribute("data-station-name"),
-                        category: btn.getAttribute("data-category"),
-                        operation_status: btn.getAttribute("data-op-status"),
-                        audit_type: btn.getAttribute("data-audit-type"),
-                        status: btn.getAttribute("data-status"),
-                        scheduled_date: btn.getAttribute("data-scheduled-date"),
-                        auditor: btn.getAttribute("data-auditor"),
-                        remarks: btn.getAttribute("data-remarks")
-                    };
-                    selectedYear = btn.getAttribute("data-year");
-                    globalYearSelect.value = selectedYear;
-                    openDetailModal(auditObj);
-                });
-            });
-
-            tr.querySelectorAll(".matrix-cell-empty-btn").forEach(btn => {
-                btn.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    const targetYear = btn.getAttribute("data-year");
-                    const auditObj = {
-                        id: null,
-                        target_id: parseInt(btn.getAttribute("data-target-id")),
-                        station_name: btn.getAttribute("data-station-name"),
-                        category: btn.getAttribute("data-category"),
-                        operation_status: btn.getAttribute("data-op-status"),
-                        audit_type: "직접",
-                        status: "계획",
-                        scheduled_date: `${targetYear}-06-01`,
-                        auditor: "",
-                        remarks: "수동 신규 편성"
-                    };
-                    selectedYear = targetYear;
-                    globalYearSelect.value = selectedYear;
-                    openDetailModal(auditObj);
-                });
-            });
-
-            matrixTableBody.appendChild(tr);
+            frag.appendChild(tr);
         });
+        matrixTableBody.appendChild(frag);
     }
 
     // 2.2 연간 12개월 캘린더 렌더링
-    async function loadCalendarData() {
-        calendarGrid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding: 50px;">${selectedYear}년 달력을 생성하는 중입니다...</div>`;
-        const calendarData = await apiFetch(`/api/calendar?year=${selectedYear}`);
+    async function loadCalendarData(signal) {
+        const url = `/api/calendar?year=${selectedYear}`;
+        if (!isApiCachedFresh(url)) {
+            calendarGrid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding: 50px;"><i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(selectedYear)}년 달력을 생성하는 중입니다...</div>`;
+        }
+        const calendarData = await apiFetch(url, { signal });
         if (!calendarData) return;
 
         calendarGrid.innerHTML = "";
+        const frag = document.createDocumentFragment();
         
         for (let month = 1; month <= 12; month++) {
             const monthBox = document.createElement("div");
@@ -1401,9 +1646,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (audits.length === 0) {
                 monthEvents.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-secondary); font-size:12px;">심사 없음</div>`;
             } else {
-                audits.sort((a, b) => a.day - b.day);
+                const sortedAudits = [...audits].sort((a, b) => a.day - b.day);
                 
-                audits.forEach(audit => {
+                sortedAudits.forEach(audit => {
                     const eventCard = document.createElement("div");
                     eventCard.className = "month-event-card";
                     
@@ -1416,13 +1661,13 @@ document.addEventListener("DOMContentLoaded", () => {
                     
                     eventCard.innerHTML = `
                         <div class="month-event-header">
-                            <span class="event-day">${audit.day}일</span>
-                            <span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}" style="font-size:8px; padding:2px 6px;">${audit.status}</span>
+                            <span class="event-day">${escapeHtml(audit.day)}일</span>
+                            <span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}" style="font-size:8px; padding:2px 6px;">${escapeHtml(audit.status)}</span>
                         </div>
-                        <div class="event-title" title="${audit.station_name}">${audit.station_name}</div>
+                        <div class="event-title" title="${escapeHtml(audit.station_name)}">${escapeHtml(audit.station_name)}</div>
                         <div class="event-meta">
-                            <span>${audit.symbol} ${audit.audit_type}</span>
-                            <span>${audit.auditor || '담당미정'}</span>
+                            <span>${escapeHtml(audit.symbol)} ${escapeHtml(audit.audit_type)}</span>
+                            <span>${escapeHtml(audit.auditor || '담당미정')}</span>
                         </div>
                     `;
                     eventCard.addEventListener("click", (e) => {
@@ -1434,8 +1679,9 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             
             monthBox.appendChild(monthEvents);
-            calendarGrid.appendChild(monthBox);
+            frag.appendChild(monthBox);
         }
+        calendarGrid.appendChild(frag);
     }
 
     // --------------------------------------------------------
@@ -1490,11 +1736,15 @@ document.addEventListener("DOMContentLoaded", () => {
     // --------------------------------------------------------
     // 2.4 연도별 상세 계획 뷰 (연도 탭 클릭 시 해당 1개년 목록)
     // --------------------------------------------------------
-    async function loadYearViewData() {
+    async function loadYearViewData(signal) {
         _yearViewCalendarCache = null;
         if (yearViewTitle) yearViewTitle.textContent = `${yearViewSelectedYear}년`;
 
-        const calendarData = await apiFetch(`/api/calendar?year=${yearViewSelectedYear}`);
+        const url = `/api/calendar?year=${yearViewSelectedYear}`;
+        if (!isApiCachedFresh(url) && yearViewTableBody) {
+            yearViewTableBody.innerHTML = `<tr><td colspan="9" class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(yearViewSelectedYear)}년 계획을 불러오는 중입니다...</td></tr>`;
+        }
+        const calendarData = await apiFetch(url, { signal });
         if (!calendarData) return;
         _yearViewCalendarCache = calendarData;
 
@@ -1560,6 +1810,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return a._month - b._month || (a.day || 1) - (b.day || 1);
         });
 
+        const frag = document.createDocumentFragment();
         filtered.forEach(audit => {
             const tr = document.createElement("tr");
             const meta = resolveCategoryMeta(audit.category);
@@ -1567,19 +1818,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
             tr.innerHTML = `
                 <td>${getCategoryBadgeHtml(audit.category)}</td>
-                <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}" style="font-size:11px;">${audit.operation_status}</span></td>
-                <td style="font-weight:600;">${audit.station_name}</td>
-                <td><span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}">${audit.symbol} ${audit.audit_type}</span></td>
+                <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}" style="font-size:11px;">${escapeHtml(audit.operation_status)}</span></td>
+                <td style="font-weight:600;">${escapeHtml(audit.station_name)}</td>
+                <td><span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}">${escapeHtml(audit.symbol)} ${escapeHtml(audit.audit_type)}</span></td>
                 <td style="text-align:center; font-weight:700; color:var(--accent-blue);">${audit._month}월</td>
-                <td>${audit.scheduled_date || '-'}</td>
-                <td><i class="fa-solid fa-user-gear" style="font-size:11px;"></i> ${audit.auditor || '-'}</td>
-                <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}" style="font-size:11px;">${audit.status}</span></td>
-                <td style="font-size:11px; color:var(--text-secondary);">${audit.remarks || ''}</td>
+                <td>${escapeHtml(audit.scheduled_date || '-')}</td>
+                <td><i class="fa-solid fa-user-gear" style="font-size:11px;"></i> ${escapeHtml(audit.auditor || '-')}</td>
+                <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}" style="font-size:11px;">${escapeHtml(audit.status)}</span></td>
+                <td style="font-size:11px; color:var(--text-secondary);">${escapeHtml(audit.remarks || '')}</td>
             `;
             tr.style.cursor = "pointer";
             tr.addEventListener("click", () => openDetailModal({ ...audit, _month: undefined }));
-            yearViewTableBody.appendChild(tr);
+            frag.appendChild(tr);
         });
+        yearViewTableBody.appendChild(frag);
 
         // 필터된 데이터로 미니 타임라인 재렌더링
         const filteredCalendarData = rebuildCalendarFromAudits(filtered);
@@ -1772,6 +2024,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 지점 카드 렌더링
         container.innerHTML = "";
+        const frag = document.createDocumentFragment();
         Object.entries(groupedByStation)
             .sort(([, a], [, b]) => a.loc.country.localeCompare(b.loc.country) || a.loc.code.localeCompare(b.loc.code))
             .forEach(([, group]) => {
@@ -1802,13 +2055,13 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                     <div class="station-group-info">
                         <div class="station-group-title">
-                            ${loc.code}
-                            <span style="font-size:13px; font-weight:400; color:var(--text-secondary);"> — ${loc.name}</span>
+                            ${escapeHtml(loc.code)}
+                            <span style="font-size:13px; font-weight:400; color:var(--text-secondary);"> — ${escapeHtml(loc.name)}</span>
                             <span class="badge badge-accent" style="font-size:10px;">${audits.length}건</span>
                         </div>
                         <div class="station-group-meta">
-                            <span><i class="fa-solid fa-flag" style="font-size:10px;"></i> ${loc.country}</span>
-                            <span><i class="fa-solid fa-globe" style="font-size:10px;"></i> ${loc.continent || ''}</span>
+                            <span><i class="fa-solid fa-flag" style="font-size:10px;"></i> ${escapeHtml(loc.country)}</span>
+                            <span><i class="fa-solid fa-globe" style="font-size:10px;"></i> ${escapeHtml(loc.continent || '')}</span>
                             ${directCnt > 0 ? `<span><span style="color:var(--accent-blue);">● 직접</span> ${directCnt}건</span>` : ''}
                             ${indirectCnt > 0 ? `<span><span style="color:var(--accent-orange);">◎ 간접</span> ${indirectCnt}건</span>` : ''}
                         </div>
@@ -1835,7 +2088,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <div class="station-cat-label">
                             <span class="cat-dot" style="background:${catMeta.color};"></span>
                             <i class="fa-solid ${catMeta.icon}" style="color:${catMeta.color};"></i>
-                            ${catMeta.label} (${cg.audits.length}건)
+                            ${escapeHtml(catMeta.label)} (${cg.audits.length}건)
                         </div>
                     `;
 
@@ -1843,15 +2096,15 @@ document.addEventListener("DOMContentLoaded", () => {
                         const item = document.createElement("div");
                         item.className = "station-audit-item";
                         item.innerHTML = `
-                            <span class="station-audit-name">${audit.station_name}</span>
+                            <span class="station-audit-name">${escapeHtml(audit.station_name)}</span>
                             <div class="station-audit-chips">
                                 <span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}" style="font-size:10px;">
-                                    ${audit.symbol} ${audit.audit_type}
+                                    ${escapeHtml(audit.symbol)} ${escapeHtml(audit.audit_type)}
                                 </span>
                                 <span class="badge badge-gray" style="font-size:10px;">${audit._month}월</span>
-                                ${audit.scheduled_date ? `<span style="font-size:11px; color:var(--text-secondary);"><i class="fa-solid fa-calendar-check"></i> ${audit.scheduled_date}</span>` : ''}
-                                <span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}" style="font-size:10px;">${audit.status}</span>
-                                ${audit.auditor ? `<span style="font-size:11px; color:var(--text-secondary);"><i class="fa-solid fa-user"></i> ${audit.auditor}</span>` : ''}
+                                ${audit.scheduled_date ? `<span style="font-size:11px; color:var(--text-secondary);"><i class="fa-solid fa-calendar-check"></i> ${escapeHtml(audit.scheduled_date)}</span>` : ''}
+                                <span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}" style="font-size:10px;">${escapeHtml(audit.status)}</span>
+                                ${audit.auditor ? `<span style="font-size:11px; color:var(--text-secondary);"><i class="fa-solid fa-user"></i> ${escapeHtml(audit.auditor)}</span>` : ''}
                             </div>
                         `;
                         item.addEventListener("click", () => openDetailModal({ ...audit, _month: undefined }));
@@ -1870,9 +2123,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     cg.audits.forEach(audit => {
                         const item = document.createElement("div");
                         item.className = "station-audit-item";
-                        item.innerHTML = `<span class="station-audit-name">${audit.station_name}</span>
+                        item.innerHTML = `<span class="station-audit-name">${escapeHtml(audit.station_name)}</span>
                             <div class="station-audit-chips">
-                                <span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}" style="font-size:10px;">${audit.symbol} ${audit.audit_type}</span>
+                                <span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}" style="font-size:10px;">${escapeHtml(audit.symbol)} ${escapeHtml(audit.audit_type)}</span>
                                 <span class="badge badge-gray" style="font-size:10px;">${audit._month}월</span>
                             </div>`;
                         item.addEventListener("click", () => openDetailModal({ ...audit, _month: undefined }));
@@ -1883,8 +2136,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 card.appendChild(header);
                 card.appendChild(body);
-                container.appendChild(card);
+                frag.appendChild(card);
             });
+        container.appendChild(frag);
     }
 
     // 연도 탭 이벤트 바인딩
@@ -1956,12 +2210,15 @@ document.addEventListener("DOMContentLoaded", () => {
     // --------------------------------------------------------
     // 3. 월별 필터 목록 데이터 렌더링
     // --------------------------------------------------------
-    async function loadListData() {
-        listTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center;">데이터를 불러오는 중입니다...</td></tr>`;
+    async function loadListData(signal) {
         const selectedMonth = filterMonthSelect.value;
         const typeFilter = filterTypeSelect.value;
+        const url = `/api/list?year=${selectedYear}&month=${selectedMonth}`;
+        if (!isApiCachedFresh(url)) {
+            listTableBody.innerHTML = `<tr><td colspan="7" class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> 데이터를 불러오는 중입니다...</td></tr>`;
+        }
         
-        const data = await apiFetch(`/api/list?year=${selectedYear}&month=${selectedMonth}`);
+        const data = await apiFetch(url, { signal });
         if (!data) return;
 
         listTableBody.innerHTML = "";
@@ -1972,28 +2229,30 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         if (filtered.length === 0) {
-            listTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-secondary);">${selectedYear}년 ${selectedMonth}월 예정 심사 일정이 없습니다.</td></tr>`;
+            listTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-secondary);">${escapeHtml(selectedYear)}년 ${escapeHtml(selectedMonth)}월 예정 심사 일정이 없습니다.</td></tr>`;
             return;
         }
 
+        const frag = document.createDocumentFragment();
         filtered.forEach(audit => {
             const tr = document.createElement("tr");
             tr.innerHTML = `
-                <td>${audit.category}</td>
-                <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${audit.operation_status}</span></td>
-                <td style="font-weight:600;">${audit.station_name}</td>
-                <td><span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}">${audit.symbol} ${audit.audit_type}</span></td>
-                <td>${audit.scheduled_date}</td>
-                <td><i class="fa-solid fa-user-gear"></i> ${audit.auditor || '-'}</td>
-                <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}">${audit.status}</span></td>
+                <td>${escapeHtml(audit.category)}</td>
+                <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${escapeHtml(audit.operation_status)}</span></td>
+                <td style="font-weight:600;">${escapeHtml(audit.station_name)}</td>
+                <td><span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}">${escapeHtml(audit.symbol)} ${escapeHtml(audit.audit_type)}</span></td>
+                <td>${escapeHtml(audit.scheduled_date)}</td>
+                <td><i class="fa-solid fa-user-gear"></i> ${escapeHtml(audit.auditor || '-')}</td>
+                <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}">${escapeHtml(audit.status)}</span></td>
             `;
             tr.addEventListener("click", () => openDetailModal(audit));
-            listTableBody.appendChild(tr);
+            frag.appendChild(tr);
         });
+        listTableBody.appendChild(frag);
     }
 
-    filterMonthSelect.addEventListener("change", loadListData);
-    filterTypeSelect.addEventListener("change", loadListData);
+    filterMonthSelect.addEventListener("change", () => loadListData());
+    filterTypeSelect.addEventListener("change", () => loadListData());
 
     // --------------------------------------------------------
     // 4. 모달 활성화 및 수동 입력 동적 롤링 (Reset & Roll-over)
@@ -2027,28 +2286,34 @@ document.addEventListener("DOMContentLoaded", () => {
     
     detailForm.addEventListener("submit", async (e) => {
         e.preventDefault();
-        
-        const payload = {
-            id: document.getElementById("detail-id").value ? parseInt(document.getElementById("detail-id").value) : null,
-            target_id: parseInt(document.getElementById("detail-target-id").value),
-            year: parseInt(document.getElementById("detail-year").value),
-            audit_type: document.getElementById("detail-audit-type").value,
-            status: document.getElementById("detail-status").value,
-            scheduled_date: document.getElementById("detail-scheduled-date").value,
-            auditor: document.getElementById("detail-auditor").value,
-            remarks: document.getElementById("detail-remarks").value
-        };
-        
-        const res = await apiFetch("/api/history/update", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-        
-        if (res && res.status === "success") {
-            multiYearScheduleMap = {};
-            closeDetailModal();
-            loadTabData();
+        const submitBtn = detailForm.querySelector('button[type="submit"]');
+        setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 저장 중...');
+        try {
+            const payload = {
+                id: document.getElementById("detail-id").value ? parseInt(document.getElementById("detail-id").value) : null,
+                target_id: parseInt(document.getElementById("detail-target-id").value),
+                year: parseInt(document.getElementById("detail-year").value),
+                audit_type: document.getElementById("detail-audit-type").value,
+                status: document.getElementById("detail-status").value,
+                scheduled_date: document.getElementById("detail-scheduled-date").value,
+                auditor: document.getElementById("detail-auditor").value,
+                remarks: document.getElementById("detail-remarks").value
+            };
+            
+            const res = await apiFetch("/api/history/update", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            
+            if (res && res.status === "success") {
+                invalidateDataCache('schedule');
+                showToast(res.message || "심사 계획이 저장되었습니다.", "success");
+                closeDetailModal();
+                loadTabData();
+            }
+        } finally {
+            setButtonLoading(submitBtn, false);
         }
     });
 
@@ -2057,17 +2322,19 @@ document.addEventListener("DOMContentLoaded", () => {
     // --------------------------------------------------------
     async function loadTargetsToEventModal() {
         if (allTargets.length === 0) {
-            allTargets = await apiFetch("/api/targets");
+            allTargets = (await apiFetch("/api/targets")) || [];
         }
-        if (!allTargets) return;
+        if (!allTargets.length) return;
         
         eventTargetSelect.innerHTML = '<option value="" disabled selected>대상을 선택하세요</option>';
+        const frag = document.createDocumentFragment();
         allTargets.forEach(t => {
             const opt = document.createElement("option");
             opt.value = t.id;
             opt.textContent = `[${t.category}] ${t.station_name} (${t.operation_status})`;
-            eventTargetSelect.appendChild(opt);
+            frag.appendChild(opt);
         });
+        eventTargetSelect.appendChild(frag);
     }
 
     btnOpenEventModal.addEventListener("click", () => {
@@ -2085,24 +2352,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
     eventForm.addEventListener("submit", async (e) => {
         e.preventDefault();
-        
-        const payload = {
-            target_id: parseInt(eventTargetSelect.value),
-            year: parseInt(document.getElementById("event-year-select").value),
-            detail: document.getElementById("event-detail").value
-        };
-        
-        const res = await apiFetch("/api/event/add", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-        
-        if (res && res.status === "success") {
-            multiYearScheduleMap = {};
-            closeEventModal();
-            alert("신규 이벤트가 성공적으로 등록되었으며 2026~2030년 롤링 스케줄이 자동 갱신(Reset & Roll-over)되었습니다.");
-            loadTabData();
+        const submitBtn = eventForm.querySelector('button[type="submit"]');
+        setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 적용 중...');
+        try {
+            const payload = {
+                target_id: parseInt(eventTargetSelect.value),
+                year: parseInt(document.getElementById("event-year-select").value),
+                detail: document.getElementById("event-detail").value
+            };
+            
+            const res = await apiFetch("/api/event/add", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            
+            if (res && res.status === "success") {
+                invalidateDataCache('schedule');
+                closeEventModal();
+                showToast(res.message || "신규 이벤트가 등록되었으며 2026~2030년 롤링 스케줄이 갱신되었습니다.", "success");
+                loadTabData();
+            }
+        } finally {
+            setButtonLoading(submitBtn, false);
         }
     });
 
@@ -2133,7 +2405,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const list = typesStr.split(",").map(s => s.trim()).filter(s => s.length > 0);
         if (list.length === 0) return `<span class="badge-na">N/A</span>`;
-        const badges = list.map(ac => `<span class="badge-aircraft"><i class="fa-solid fa-plane"></i> ${ac}</span>`).join("");
+        const badges = list.map(ac => `<span class="badge-aircraft"><i class="fa-solid fa-plane"></i> ${escapeHtml(ac)}</span>`).join("");
         return `<div class="type-badges-container">${badges}</div>`;
     }
 
@@ -2143,7 +2415,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const list = typesStr.split(",").map(s => s.trim()).filter(s => s.length > 0);
         if (list.length === 0) return `<span class="badge-na">N/A</span>`;
-        const badges = list.map(eng => `<span class="badge-engine"><i class="fa-solid fa-fire-flame-curved"></i> ${eng}</span>`).join("");
+        const badges = list.map(eng => `<span class="badge-engine"><i class="fa-solid fa-fire-flame-curved"></i> ${escapeHtml(eng)}</span>`).join("");
         return `<div class="type-badges-container">${badges}</div>`;
     }
 
@@ -2276,6 +2548,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        const frag = document.createDocumentFragment();
         filtered.forEach((target, idx) => {
             const tr = document.createElement("tr");
             const intervalText = target.base_interval === 1 ? "1년(매년직접)" : "2년(교차)";
@@ -2283,10 +2556,10 @@ document.addEventListener("DOMContentLoaded", () => {
             tr.innerHTML = `
                 <td>${idx + 1}</td>
                 <td>${getCategoryBadgeHtml(target.category)}</td>
-                <td style="font-weight:600;">${target.station_name}</td>
+                <td style="font-weight:600;">${escapeHtml(target.station_name)}</td>
                 <td>${formatAircraftBadges(target.aircraft_types)}</td>
                 <td>${formatEngineBadges(target.engine_types)}</td>
-                <td><span class="badge ${target.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${target.operation_status}</span></td>
+                <td><span class="badge ${target.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${escapeHtml(target.operation_status)}</span></td>
                 <td>${intervalText}</td>
                 <td style="text-align:center;">
                     <button class="btn btn-secondary btn-xs btn-edit-target" style="margin-right:6px;"><i class="fa-solid fa-pen-to-square"></i> 수정</button>
@@ -2304,8 +2577,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 deleteTarget(target.id, target.station_name);
             });
             
-            manageTableBody.appendChild(tr);
+            frag.appendChild(tr);
         });
+        manageTableBody.appendChild(frag);
     }
 
     // 필터 변경 이벤트 등록
@@ -2315,10 +2589,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (manageFilterEngine) manageFilterEngine.addEventListener("change", renderManageTable);
     if (manageSearchInput) manageSearchInput.addEventListener("input", renderManageTable);
 
-    async function loadManageData() {
-        manageTableBody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:30px;">심사 대상을 조회하고 있습니다...</td></tr>`;
-        allTargets = await apiFetch("/api/targets");
-        if (!allTargets) return;
+    async function loadManageData(signal) {
+        const url = "/api/targets";
+        if (!isApiCachedFresh(url)) {
+            manageTableBody.innerHTML = `<tr><td colspan="8" class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> 심사 대상을 조회하고 있습니다...</td></tr>`;
+        }
+        const targets = await apiFetch(url, { signal });
+        if (!targets) return;
+        allTargets = targets;
         renderManageTable();
     }
 
@@ -2422,31 +2700,42 @@ document.addEventListener("DOMContentLoaded", () => {
             payload.first_auditor = document.getElementById("target-first-auditor").value;
         }
         
-        const res = await apiFetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-        
-        if (res && res.status === "success") {
-            closeTargetModal();
-            allTargets = [];
-            loadManageData();
+        const submitBtn = targetForm.querySelector('button[type="submit"]');
+        setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 저장 중...');
+        try {
+            const res = await apiFetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            
+            if (res && res.status === "success") {
+                invalidateDataCache('target');
+                showToast(res.message || "심사 대상이 저장되었습니다.", "success");
+                closeTargetModal();
+                loadManageData();
+            }
+        } finally {
+            setButtonLoading(submitBtn, false);
         }
     });
 
     async function deleteTarget(id, name) {
-        if (confirm(`[경고] '${name}' 심사 대상을 정말 삭제하시겠습니까?\n삭제 시 이 대상에 연결된 모든 계획 일정 및 이력 데이터가 영구적으로 제거됩니다.`)) {
-            const res = await apiFetch("/api/target/delete", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: id })
-            });
-            
-            if (res && res.status === "success") {
-                allTargets = [];
-                loadManageData();
-            }
+        const ok = await showConfirmModal(
+            `'${name}' 심사 대상을 정말 삭제하시겠습니까?\n삭제 시 연결된 모든 계획 일정, 이력, 지적사항 및 점검표 데이터가 영구적으로 제거됩니다.`,
+            { title: "심사 대상 삭제", okText: "삭제", danger: true }
+        );
+        if (!ok) return;
+        const res = await apiFetch("/api/target/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: id })
+        });
+        
+        if (res && res.status === "success") {
+            invalidateDataCache('target');
+            showToast(res.message || "심사 대상이 삭제되었습니다.", "info");
+            loadManageData();
         }
     }
 
@@ -2484,8 +2773,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 심사원 목록 로드
-    async function loadAuditorData() {
-        const data = await apiFetch('/api/auditors');
+    async function loadAuditorData(signal) {
+        const url = '/api/auditors';
+        const tbody = document.getElementById('auditor-table-body');
+        if (!isApiCachedFresh(url) && tbody) {
+            tbody.innerHTML = `<tr><td colspan="12" class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> 심사원 현황을 불러오는 중입니다...</td></tr>`;
+        }
+        const data = await apiFetch(url, { signal });
         if (!data) return;
         allAuditors = data;
         renderAuditorTable();
@@ -2528,28 +2822,42 @@ document.addEventListener("DOMContentLoaded", () => {
             return `<tr class="${rowClass}" style="cursor:default;">
                 <td>${i + 1}</td>
                 <td>
-                    <div style="font-weight:700;">${a.name_kr}</div>
-                    <div style="font-size:11px; color:var(--text-secondary);">${a.name_en || ''}</div>
+                    <div style="font-weight:700;">${escapeHtml(a.name_kr)}</div>
+                    <div style="font-size:11px; color:var(--text-secondary);">${escapeHtml(a.name_en || '')}</div>
                 </td>
-                <td>${a.department || '—'}</td>
-                <td><code style="font-size:12px;">${a.employee_id || '—'}</code></td>
+                <td>${escapeHtml(a.department || '—')}</td>
+                <td><code style="font-size:12px;">${escapeHtml(a.employee_id || '—')}</code></td>
                 <td>${statusBadgeHtml(a.status)}</td>
-                <td>${formatDate(refreshDate)}</td>
-                <td class="${refreshDueClass}">${formatDate(a.next_refresher_due)}${ddayHtml(a.refresh_days_left)}</td>
+                <td>${escapeHtml(formatDate(refreshDate))}</td>
+                <td class="${refreshDueClass}">${escapeHtml(formatDate(a.next_refresher_due))}${ddayHtml(a.refresh_days_left)}</td>
                 <td>${statusBadgeHtml(a.refresh_status)}</td>
-                <td>${formatDate(evalDate)}</td>
-                <td class="${evalDueClass}">${formatDate(a.next_eval_due)}${ddayHtml(a.eval_days_left)}</td>
+                <td>${escapeHtml(formatDate(evalDate))}</td>
+                <td class="${evalDueClass}">${escapeHtml(formatDate(a.next_eval_due))}${ddayHtml(a.eval_days_left)}</td>
                 <td>${statusBadgeHtml(a.eval_status)}</td>
                 <td style="text-align:center; white-space:nowrap;">
-                    <button class="btn btn-secondary" style="padding:4px 10px; font-size:12px; margin-right:4px;" onclick="openAuditorModal(${a.id})">
+                    <button type="button" class="btn btn-secondary" style="padding:4px 10px; font-size:12px; margin-right:4px;" data-action="edit-auditor" data-id="${a.id}">
                         <i class="fa-solid fa-pen"></i>
                     </button>
-                    <button class="btn" style="padding:4px 10px; font-size:12px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);" onclick="deleteAuditor(${a.id}, '${a.name_kr}')">
+                    <button type="button" class="btn" style="padding:4px 10px; font-size:12px; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);" data-action="delete-auditor" data-id="${a.id}">
                         <i class="fa-solid fa-trash"></i>
                     </button>
                 </td>
             </tr>`;
         }).join('');
+    }
+
+    const auditorTableBodyEl = document.getElementById('auditor-table-body');
+    if (auditorTableBodyEl) {
+        auditorTableBodyEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            const id = parseInt(btn.getAttribute('data-id'), 10);
+            const auditor = allAuditors.find(x => x.id === id);
+            if (!auditor) return;
+            const action = btn.getAttribute('data-action');
+            if (action === 'edit-auditor') openAuditorModal(id);
+            else if (action === 'delete-auditor') deleteAuditor(id, auditor.name_kr);
+        });
     }
 
     // 필터 토글
@@ -2576,12 +2884,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const isExpired = a.status === '만료';
             const cardClass = isExpired ? '' : 'alert-warning';
             const icon = isExpired ? '⚠️' : '🔔';
-            const msgs = a.messages.map(m => `<div class="alert-card-msg">▸ ${m}</div>`).join('');
+            const msgs = a.messages.map(m => `<div class="alert-card-msg">▸ ${escapeHtml(m)}</div>`).join('');
             return `<div class="alert-card ${cardClass}">
                 <div class="alert-card-icon">${icon}</div>
                 <div class="alert-card-body">
-                    <div class="alert-card-name">${a.name_kr} <span style="font-size:12px; font-weight:400; color:var(--text-secondary);">(${a.name_en || ''} / ${a.employee_id || ''})</span></div>
-                    <div class="alert-card-sub">${a.department || ''}</div>
+                    <div class="alert-card-name">${escapeHtml(a.name_kr)} <span style="font-size:12px; font-weight:400; color:var(--text-secondary);">(${escapeHtml(a.name_en || '')} / ${escapeHtml(a.employee_id || '')})</span></div>
+                    <div class="alert-card-sub">${escapeHtml(a.department || '')}</div>
                     <div class="alert-card-messages">${msgs}</div>
                 </div>
             </div>`;
@@ -2686,46 +2994,58 @@ document.addEventListener("DOMContentLoaded", () => {
     // 폼 제출
     auditorManageForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const id = document.getElementById('auditor-edit-id').value;
-        const payload = {
-            name_kr: document.getElementById('auditor-name-kr').value.trim(),
-            name_en: document.getElementById('auditor-name-en').value.trim(),
-            department: document.getElementById('auditor-dept').value.trim(),
-            employee_id: document.getElementById('auditor-emp-id').value.trim(),
-            contact: document.getElementById('auditor-contact').value.trim(),
-            qualification: document.getElementById('auditor-qual').value.trim(),
-            cert_number: document.getElementById('auditor-cert').value.trim(),
-            initial_training_date: document.getElementById('auditor-init-train').value || null,
-            last_refresher_date: document.getElementById('auditor-last-refresh').value || null,
-            initial_eval_date: document.getElementById('auditor-init-eval').value || null,
-            last_eval_date: document.getElementById('auditor-last-eval').value || null,
-            remarks: document.getElementById('auditor-remarks').value.trim(),
-        };
-        const url = id ? '/api/auditor/update' : '/api/auditor/add';
-        if (id) payload.id = parseInt(id);
+        const submitBtn = document.getElementById('btn-submit-auditor');
+        setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 저장 중...');
+        try {
+            const id = document.getElementById('auditor-edit-id').value;
+            const payload = {
+                name_kr: document.getElementById('auditor-name-kr').value.trim(),
+                name_en: document.getElementById('auditor-name-en').value.trim(),
+                department: document.getElementById('auditor-dept').value.trim(),
+                employee_id: document.getElementById('auditor-emp-id').value.trim(),
+                contact: document.getElementById('auditor-contact').value.trim(),
+                qualification: document.getElementById('auditor-qual').value.trim(),
+                cert_number: document.getElementById('auditor-cert').value.trim(),
+                initial_training_date: document.getElementById('auditor-init-train').value || null,
+                last_refresher_date: document.getElementById('auditor-last-refresh').value || null,
+                initial_eval_date: document.getElementById('auditor-init-eval').value || null,
+                last_eval_date: document.getElementById('auditor-last-eval').value || null,
+                remarks: document.getElementById('auditor-remarks').value.trim(),
+            };
+            const url = id ? '/api/auditor/update' : '/api/auditor/add';
+            if (id) payload.id = parseInt(id);
 
-        const res = await apiFetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (res && res.status === 'success') {
-            auditorManageModal.classList.remove('active');
-            loadAuditorData();
+            const res = await apiFetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res && res.status === 'success') {
+                invalidateDataCache('auditor');
+                showToast(res.message || '심사원 정보가 저장되었습니다.', 'success');
+                auditorManageModal.classList.remove('active');
+                loadAuditorData();
+            }
+        } finally {
+            setButtonLoading(submitBtn, false);
         }
     });
 
     window.deleteAuditor = async function(id, name) {
-        if (confirm(`[경고] '${name}' 심사원을 정말 삭제하시겠습니까?\n삭제 시 모든 정보가 영구 제거됩니다.`)) {
-            const res = await apiFetch('/api/auditor/delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: id })
-            });
-            if (res && res.status === 'success') {
-                showToast(`'${name}' 심사원이 삭제되었습니다.`, 'info');
-                loadAuditorData();
-            }
+        const ok = await showConfirmModal(
+            `'${name}' 심사원을 정말 삭제하시겠습니까?\n삭제 시 모든 정보가 영구 제거됩니다.`,
+            { title: '심사원 삭제', okText: '삭제', danger: true }
+        );
+        if (!ok) return;
+        const res = await apiFetch('/api/auditor/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id })
+        });
+        if (res && res.status === 'success') {
+            invalidateDataCache('auditor');
+            showToast(`'${name}' 심사원이 삭제되었습니다.`, 'info');
+            loadAuditorData();
         }
     };
 
@@ -2854,6 +3174,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 
                 // 모달 즉시 닫기
                 if (loginModal) loginModal.classList.remove('active');
+                invalidateDataCache('all');
                 
                 // UI 갱신 (권한에 따른 탭 조정)
                 updateAuthUI();
@@ -2879,28 +3200,26 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // 빠른 테스트 로그인 (전역 바인딩 - 빈 함수로 안전화)
-    window.quickLogin = function() {};
-
     // 로그아웃
     async function doLogout() {
-        if (confirm('로그아웃 하시겠습니까?')) {
-            await fetch('/api/auth/logout', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${authToken}` }
-            }).catch(() => {});
-            
-            authToken = "";
-            currentUser = null;
-            localStorage.removeItem("audit_auth_token");
-            updateAuthUI();
-            showToast('로그아웃 되었습니다.', 'info');
-            
-            // 만약 관리자 탭이나 마이페이지에 있었다면 대시보드로 이동
-            if (currentTab === 'users' || currentTab === 'mypage') {
-                const dashNav = document.querySelector('[data-tab="dashboard"]');
-                if (dashNav) dashNav.click();
-            }
+        const ok = await showConfirmModal('로그아웃 하시겠습니까?', { title: '로그아웃', okText: '로그아웃' });
+        if (!ok) return;
+        await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        }).catch(() => {});
+        
+        authToken = "";
+        currentUser = null;
+        localStorage.removeItem("audit_auth_token");
+        invalidateDataCache('all');
+        updateAuthUI();
+        showToast('로그아웃 되었습니다.', 'info');
+        
+        // 만약 관리자 탭이나 마이페이지에 있었다면 대시보드로 이동
+        if (currentTab === 'users' || currentTab === 'mypage') {
+            const dashNav = document.querySelector('[data-tab="dashboard"]');
+            if (dashNav) dashNav.click();
         }
     }
 
@@ -3011,6 +3330,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            const submitBtn = document.getElementById('btn-submit-register');
+            setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 신청 중...');
             try {
                 const res = await fetch('/api/auth/register', {
                     method: 'POST',
@@ -3031,6 +3352,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             } catch (err) {
                 showToast('서버와의 통신에 실패했습니다.', 'error');
+            } finally {
+                setButtonLoading(submitBtn, false);
             }
         });
     }
@@ -3060,13 +3383,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            const res = await apiFetch('/api/auth/change_password', {
-                method: 'POST',
-                body: JSON.stringify({ old_password: oldPw, new_password: newPw })
-            });
-            if (res && res.status === 'success') {
-                showToast(res.message || '비밀번호가 변경되었습니다.', 'success');
-                changePwModal.classList.remove('active');
+            const submitBtn = document.getElementById('btn-submit-password');
+            setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 변경 중...');
+            try {
+                const res = await apiFetch('/api/auth/change_password', {
+                    method: 'POST',
+                    body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+                });
+                if (res && res.status === 'success') {
+                    showToast(res.message || '비밀번호가 변경되었습니다.', 'success');
+                    changePwModal.classList.remove('active');
+                }
+            } finally {
+                setButtonLoading(submitBtn, false);
             }
         });
     }
@@ -3074,9 +3403,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // ========================================================
     // 심사원 전용 마이페이지 (My Page) 로직
     // ========================================================
-    async function loadMyPageData() {
+    async function loadMyPageData(signal, forceRefresh = false) {
         if (!currentUser) {
-            // 로그인되어 있지 않은 경우 로그인 모달 표시
             showToast('심사원 마이페이지를 이용하시려면 먼저 로그인해주세요.', 'info');
             if (loginModal) loginModal.classList.add('active');
             return;
@@ -3088,9 +3416,23 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById('my-dept-badge').textContent = currentUser.department || '정비품질보증팀';
         document.getElementById('my-empid-badge').textContent = currentUser.employee_id ? `사번: ${currentUser.employee_id}` : '관리자 계정';
 
-        // 1. 심사원 상세 자격 정보 조회 (auditor_id 기반)
+        const yrNum = parseInt(selectedYear, 10);
+        const schedUrl = (yrNum >= 2026 && yrNum <= 2030 && !forceRefresh)
+            ? '/api/multi_year_schedule?start_year=2026&end_year=2030'
+            : `/api/multi_year_schedule?start_year=${selectedYear}&end_year=${selectedYear}`;
+
+        const tbody = document.getElementById('my-schedule-table-body');
+        if (tbody && (forceRefresh || !isApiCachedFresh(schedUrl))) {
+            tbody.innerHTML = '<tr><td colspan="8" class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> 배정 일정을 불러오는 중입니다...</td></tr>';
+        }
+
+        const [auditors, multiScheds] = await Promise.all([
+            currentUser.auditor_id ? apiFetch('/api/auditors', { signal, noCache: forceRefresh }) : Promise.resolve(null),
+            apiFetch(schedUrl, { signal, noCache: forceRefresh })
+        ]);
+
+        // 1. 심사원 상세 자격 정보 반영
         if (currentUser.auditor_id) {
-            const auditors = await apiFetch('/api/auditors');
             if (auditors) {
                 const myAuditor = auditors.find(a => a.id === currentUser.auditor_id);
                 if (myAuditor) {
@@ -3098,7 +3440,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
         } else {
-            // 관리자의 경우
             document.getElementById('my-refresher-due-display').textContent = '관리자 계정 (해당 없음)';
             document.getElementById('my-refresher-dday-badge').textContent = '정상';
             document.getElementById('my-refresher-dday-badge').className = 'qual-card-dday dday-normal';
@@ -3107,14 +3448,12 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById('my-eval-dday-badge').className = 'qual-card-dday dday-normal';
         }
 
-        // 2. 본인 배정 일정 목록 조회
-        const multiScheds = await apiFetch(`/api/multi_year_schedule?start_year=${selectedYear}&end_year=${selectedYear}`);
-        const tbody = document.getElementById('my-schedule-table-body');
+        // 2. 본인 배정 일정 목록 반영
         if (!tbody) return;
         tbody.innerHTML = '';
 
         if (!multiScheds) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4">일정을 불러올 수 없습니다.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4">일정을 불러올 수 없습니다.</td></tr>';
             return;
         }
 
@@ -3123,13 +3462,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const myAudits = [];
 
         multiScheds.forEach(target => {
-            const sched = target.schedule && target.schedule[parseInt(selectedYear)];
+            const sched = target.schedule && target.schedule[yrNum];
             if (sched && sched.status !== '비운항') {
                 const auditorField = sched.auditor || '';
-                // 이름이나 사번이 포함되어 있는지 확인
                 const isAssigned = (myName && auditorField.includes(myName)) || 
                                    (myEmpId && auditorField.includes(myEmpId)) ||
-                                   (currentUser.role === 'admin'); // 관리자는 전체 일정 참고 가능
+                                   (currentUser.role === 'admin');
 
                 if (isAssigned) {
                     myAudits.push({
@@ -3142,7 +3480,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
 
-        // 통계 지표 업데이트
         const directCount = myAudits.filter(a => a.audit_type === '직접').length;
         const indirectCount = myAudits.filter(a => a.audit_type === '간접').length;
         document.getElementById('my-total-audit-count').innerHTML = `${myAudits.length}<small>건</small>`;
@@ -3150,23 +3487,23 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById('my-indirect-audit-count').innerHTML = `${indirectCount}<small>건</small>`;
 
         if (myAudits.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4" style="color:var(--text-secondary);">${selectedYear}년에 배정된 심사 일정이 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4" style="color:var(--text-secondary);">${escapeHtml(selectedYear)}년에 배정된 심사 일정이 없습니다.</td></tr>`;
             return;
         }
 
-        // 날짜순 정렬
         myAudits.sort((a, b) => (a.scheduled_date || '').localeCompare(b.scheduled_date || ''));
 
+        const frag = document.createDocumentFragment();
         myAudits.forEach(audit => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong>${audit.scheduled_date || '-'}</strong></td>
-                <td style="font-weight:600; color:var(--text-primary);">${audit.station_name}</td>
-                <td>${audit.category}</td>
-                <td><span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}">${audit.symbol || ''} ${audit.audit_type}</span></td>
-                <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${audit.operation_status}</span></td>
-                <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}">${audit.status}</span></td>
-                <td><small style="color:var(--text-secondary);">${audit.remarks || '-'}</small></td>
+                <td><strong>${escapeHtml(audit.scheduled_date || '-')}</strong></td>
+                <td style="font-weight:600; color:var(--text-primary);">${escapeHtml(audit.station_name)}</td>
+                <td>${escapeHtml(audit.category)}</td>
+                <td><span class="badge ${audit.audit_type === '직접' ? 'badge-blue' : 'badge-orange'}">${escapeHtml(audit.symbol || '')} ${escapeHtml(audit.audit_type)}</span></td>
+                <td><span class="badge ${audit.operation_status === '운항' ? 'badge-green' : 'badge-orange'}">${escapeHtml(audit.operation_status)}</span></td>
+                <td><span class="badge ${audit.status === '완료' ? 'badge-green' : 'badge-blue'}">${escapeHtml(audit.status)}</span></td>
+                <td><small style="color:var(--text-secondary);">${escapeHtml(audit.remarks || '-')}</small></td>
                 <td style="text-align:center;">
                     <button class="btn btn-primary btn-xs btn-jump-chk" style="padding:4px 8px; font-size:11px;" data-tid="${audit.target_id}">
                         <i class="fa-solid fa-clipboard-check"></i> 점검표
@@ -3177,8 +3514,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 e.stopPropagation();
                 jumpToChecklist(audit.target_id, selectedYear);
             });
-            tbody.appendChild(tr);
+            frag.appendChild(tr);
         });
+        tbody.appendChild(frag);
     }
 
     function renderMyQualificationCards(auditor) {
@@ -3225,19 +3563,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const btnRefreshMySchedule = document.getElementById('btn-refresh-my-schedule');
     if (btnRefreshMySchedule) {
-        btnRefreshMySchedule.addEventListener('click', loadMyPageData);
+        btnRefreshMySchedule.addEventListener('click', () => loadMyPageData(undefined, true));
     }
 
     // ========================================================
     // 계정 및 권한 관리 (Users Management - Admin Only)
     // ========================================================
-    async function loadUsersTable() {
+    let latestUsersMap = new Map();
+
+    async function loadUsersTable(signal, forceRefresh = false) {
         if (!currentUser || currentUser.role !== 'admin') {
             showToast('관리자 권한이 필요합니다.', 'error');
             return;
         }
 
-        const users = await apiFetch('/api/users');
+        const url = '/api/users';
         const tbody = document.getElementById('users-table-body');
         const badge = document.getElementById('user-count-badge');
         const pendingBadge = document.getElementById('pending-summary-badge');
@@ -3246,6 +3586,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const pendingCardBadge = document.getElementById('pending-users-badge');
         if (!tbody) return;
 
+        if (forceRefresh || !isApiCachedFresh(url)) {
+            tbody.innerHTML = '<tr><td colspan="9" class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> 계정 목록을 불러오는 중입니다...</td></tr>';
+        }
+
+        const users = await apiFetch(url, { signal, noCache: forceRefresh });
         tbody.innerHTML = '';
         if (pendingTbody) pendingTbody.innerHTML = '';
 
@@ -3254,6 +3599,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        latestUsersMap = new Map(users.map(u => [u.id, u]));
         if (badge) badge.textContent = `총 ${users.length}명`;
 
         // 1. 승인 대기 명단 처리
@@ -3272,26 +3618,28 @@ document.addEventListener("DOMContentLoaded", () => {
                 pendingCard.style.display = 'block';
                 if (pendingCardBadge) pendingCardBadge.textContent = `대기 ${pendingUsers.length}건`;
                 if (pendingTbody) {
+                    const pFrag = document.createDocumentFragment();
                     pendingUsers.forEach(pu => {
                         const ptr = document.createElement('tr');
                         ptr.innerHTML = `
-                            <td><code style="font-weight:700; color:#fbbf24; font-size:13px;">${pu.username}</code></td>
-                            <td><strong>${pu.name}</strong></td>
-                            <td>${pu.department || '-'}</td>
-                            <td><small style="color:var(--text-secondary);">${pu.created_at || '-'}</small></td>
+                            <td><code style="font-weight:700; color:#fbbf24; font-size:13px;">${escapeHtml(pu.username)}</code></td>
+                            <td><strong>${escapeHtml(pu.name)}</strong></td>
+                            <td>${escapeHtml(pu.department || '-')}</td>
+                            <td><small style="color:var(--text-secondary);">${escapeHtml(pu.created_at || '-')}</small></td>
                             <td style="text-align:center;">
                                 <div style="display:inline-flex; gap:6px;">
-                                    <button class="btn btn-primary btn-sm" onclick="approveUserAccount(${pu.id}, '${pu.name}', '${pu.username}')" style="background:#10b981; border-color:#059669;">
+                                    <button type="button" class="btn btn-primary btn-sm" data-action="approve-user" data-id="${pu.id}" style="background:#10b981; border-color:#059669;">
                                         <i class="fa-solid fa-check"></i> 가입 승인
                                     </button>
-                                    <button class="btn btn-outline-danger btn-sm" onclick="rejectUserAccount(${pu.id}, '${pu.name}', '${pu.username}')">
+                                    <button type="button" class="btn btn-outline-danger btn-sm" data-action="reject-user" data-id="${pu.id}">
                                         <i class="fa-solid fa-xmark"></i> 반려
                                     </button>
                                 </div>
                             </td>
                         `;
-                        pendingTbody.appendChild(ptr);
+                        pFrag.appendChild(ptr);
                     });
+                    pendingTbody.appendChild(pFrag);
                 }
             } else {
                 pendingCard.style.display = 'none';
@@ -3299,6 +3647,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // 2. 전체 계정 목록 렌더링
+        const frag = document.createDocumentFragment();
         users.forEach((user, idx) => {
             const tr = document.createElement('tr');
             const isAdmin = user.role === 'admin';
@@ -3311,32 +3660,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
             tr.innerHTML = `
                 <td>${idx + 1}</td>
-                <td><code style="font-weight:700; color:var(--text-primary); font-size:13px;">${user.username}</code></td>
-                <td><strong>${user.name}</strong></td>
-                <td>${user.department || '-'}</td>
+                <td><code style="font-weight:700; color:var(--text-primary); font-size:13px;">${escapeHtml(user.username)}</code></td>
+                <td><strong>${escapeHtml(user.name)}</strong></td>
+                <td>${escapeHtml(user.department || '-')}</td>
                 <td><span class="role-chip ${isAdmin ? 'admin' : 'user'}">${isAdmin ? '시스템 관리자' : '일반 심사원'}</span></td>
                 <td>${statusBadge}</td>
-                <td><small>${user.qualification || user.cert_number || '-'}</small></td>
-                <td><small style="color:var(--text-secondary);">${user.created_at || '-'}</small></td>
+                <td><small>${escapeHtml(user.qualification || user.cert_number || '-')}</small></td>
+                <td><small style="color:var(--text-secondary);">${escapeHtml(user.created_at || '-')}</small></td>
                 <td style="text-align:center;">
                     <div style="display:inline-flex; gap:6px;">
                         ${isPending ? `
-                            <button class="btn btn-primary btn-sm" onclick="approveUserAccount(${user.id}, '${user.name}', '${user.username}')" style="background:#10b981; border-color:#059669;" title="가입 승인">
+                            <button type="button" class="btn btn-primary btn-sm" data-action="approve-user" data-id="${user.id}" style="background:#10b981; border-color:#059669;" title="가입 승인">
                                 <i class="fa-solid fa-check"></i> 승인
                             </button>
-                            <button class="btn btn-outline-danger btn-sm" onclick="rejectUserAccount(${user.id}, '${user.name}', '${user.username}')" title="가입 신청 반려">
+                            <button type="button" class="btn btn-outline-danger btn-sm" data-action="reject-user" data-id="${user.id}" title="가입 신청 반려">
                                 <i class="fa-solid fa-xmark"></i> 반려
                             </button>
                         ` : `
-                            <button class="btn btn-secondary btn-sm" onclick="resetUserPassword(${user.id}, '${user.name}', '${user.username}')" title="비밀번호 변경/초기화">
+                            <button type="button" class="btn btn-secondary btn-sm" data-action="reset-password" data-id="${user.id}" title="비밀번호 변경/초기화">
                                 <i class="fa-solid fa-key"></i> 비밀번호 변경
                             </button>
                             ${isSelf ? `
-                                <button class="btn btn-secondary btn-sm" disabled style="opacity:0.4; cursor:not-allowed;" title="본인 계정은 삭제할 수 없습니다.">
+                                <button type="button" class="btn btn-secondary btn-sm" disabled style="opacity:0.4; cursor:not-allowed;" title="본인 계정은 삭제할 수 없습니다.">
                                     <i class="fa-solid fa-trash"></i> 삭제
                                 </button>
                             ` : `
-                                <button class="btn btn-outline-danger btn-sm" onclick="deleteUserAccount(${user.id}, '${user.name}', '${user.username}')" title="계정 영구 삭제">
+                                <button type="button" class="btn btn-outline-danger btn-sm" data-action="delete-user" data-id="${user.id}" title="계정 영구 삭제">
                                     <i class="fa-solid fa-trash"></i> 삭제
                                 </button>
                             `}
@@ -3344,39 +3693,63 @@ document.addEventListener("DOMContentLoaded", () => {
                     </div>
                 </td>
             `;
-            tbody.appendChild(tr);
+            frag.appendChild(tr);
         });
+        tbody.appendChild(frag);
     }
+
+    function handleUserTableAction(e) {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const userId = parseInt(btn.getAttribute('data-id'), 10);
+        const user = latestUsersMap.get(userId);
+        if (!user) return;
+        const action = btn.getAttribute('data-action');
+        if (action === 'approve-user') approveUserAccount(user.id, user.name, user.username);
+        else if (action === 'reject-user') rejectUserAccount(user.id, user.name, user.username);
+        else if (action === 'reset-password') resetUserPassword(user.id, user.name, user.username);
+        else if (action === 'delete-user') deleteUserAccount(user.id, user.name, user.username);
+    }
+    const pendingUsersTbodyEl = document.getElementById('pending-users-table-body');
+    const usersTbodyEl = document.getElementById('users-table-body');
+    if (pendingUsersTbodyEl) pendingUsersTbodyEl.addEventListener('click', handleUserTableAction);
+    if (usersTbodyEl) usersTbodyEl.addEventListener('click', handleUserTableAction);
 
     // 관리자: 회원가입 신청 승인
     window.approveUserAccount = async function(userId, name, username) {
-        if (!confirm(`'${name} (${username})' 님의 가입 신청을 승인하시겠습니까?\n승인 시 일반 심사원 권한으로 시스템 로그인이 가능해집니다.`)) {
-            return;
-        }
+        const ok = await showConfirmModal(
+            `'${name} (${username})' 님의 가입 신청을 승인하시겠습니까?\n승인 시 일반 심사원 권한으로 시스템 로그인이 가능해집니다.`,
+            { title: '가입 승인', okText: '승인' }
+        );
+        if (!ok) return;
 
         const res = await apiFetch('/api/users/approve', {
             method: 'POST',
             body: JSON.stringify({ user_id: userId, role: 'user' })
         });
         if (res && res.status === 'success') {
+            invalidateDataCache('user');
             showToast(res.message, 'success');
-            loadUsersTable();
+            loadUsersTable(undefined, true);
         }
     };
 
     // 관리자: 회원가입 신청 반려
     window.rejectUserAccount = async function(userId, name, username) {
-        if (!confirm(`정말로 '${name} (${username})' 님의 가입 신청을 반려(삭제)하시겠습니까?`)) {
-            return;
-        }
+        const ok = await showConfirmModal(
+            `정말로 '${name} (${username})' 님의 가입 신청을 반려(삭제)하시겠습니까?`,
+            { title: '가입 반려', okText: '반려', danger: true }
+        );
+        if (!ok) return;
 
         const res = await apiFetch('/api/users/reject', {
             method: 'POST',
             body: JSON.stringify({ user_id: userId })
         });
         if (res && res.status === 'success') {
+            invalidateDataCache('user');
             showToast(res.message, 'info');
-            loadUsersTable();
+            loadUsersTable(undefined, true);
         }
     };
 
@@ -3393,10 +3766,14 @@ document.addEventListener("DOMContentLoaded", () => {
             defaultSuggest = 'admin1234';
         }
 
-        const newPw = prompt(`[${name} (${username})] 계정의 비밀번호를 변경합니다.\n새로 설정할 비밀번호(숫자 6자리 권장)를 입력해주세요:`, defaultSuggest);
+        const newPw = await showPromptModal(
+            `[${name} (${username})] 계정의 비밀번호를 변경합니다.\n새로 설정할 비밀번호(숫자 6자리 권장)를 입력해주세요.`,
+            defaultSuggest,
+            { title: '비밀번호 변경 / 초기화', okText: '변경하기', placeholder: '새 비밀번호 입력' }
+        );
         if (newPw === null) return;
         if (!newPw.trim()) {
-            alert('비밀번호를 입력해주세요.');
+            showToast('비밀번호를 입력해주세요.', 'warning');
             return;
         }
 
@@ -3411,17 +3788,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 관리자: 사용자 계정 삭제
     window.deleteUserAccount = async function(userId, name, username) {
-        if (!confirm(`정말로 '${name} (${username})' 계정을 완전히 삭제하시겠습니까?\n삭제 후에는 해당 사번으로 로그인할 수 없으며, 필요 시 다시 등록해야 합니다.`)) {
-            return;
-        }
+        const ok = await showConfirmModal(
+            `정말로 '${name} (${username})' 계정을 완전히 삭제하시겠습니까?\n삭제 후에는 해당 사번으로 로그인할 수 없으며, 필요 시 다시 등록해야 합니다.`,
+            { title: '계정 영구 삭제', okText: '삭제', danger: true }
+        );
+        if (!ok) return;
 
         const res = await apiFetch('/api/users/delete', {
             method: 'POST',
             body: JSON.stringify({ user_id: userId })
         });
         if (res && res.status === 'success') {
+            invalidateDataCache('user');
             showToast(res.message, 'success');
-            loadUsersTable();
+            loadUsersTable(undefined, true);
         }
     };
 
@@ -3487,28 +3867,35 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            const res = await apiFetch('/api/users/create', {
-                method: 'POST',
-                body: JSON.stringify({
-                    username,
-                    name,
-                    role,
-                    password
-                })
-            });
+            const submitBtn = document.getElementById('btn-submit-user-create');
+            setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 등록 중...');
+            try {
+                const res = await apiFetch('/api/users/create', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        username,
+                        name,
+                        role,
+                        password
+                    })
+                });
 
-            if (res && res.status === 'success') {
-                showToast(res.message, 'success');
-                modalUserCreate.classList.remove('active');
-                userCreateForm.reset();
-                loadUsersTable();
+                if (res && res.status === 'success') {
+                    invalidateDataCache('user');
+                    showToast(res.message, 'success');
+                    modalUserCreate.classList.remove('active');
+                    userCreateForm.reset();
+                    loadUsersTable(undefined, true);
+                }
+            } finally {
+                setButtonLoading(submitBtn, false);
             }
         });
     }
 
     const btnRefreshUsers = document.getElementById('btn-refresh-users');
     if (btnRefreshUsers) {
-        btnRefreshUsers.addEventListener('click', loadUsersTable);
+        btnRefreshUsers.addEventListener('click', () => loadUsersTable(undefined, true));
     }
 
     // ========================================================
@@ -3529,9 +3916,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const analysisTargetView = document.getElementById("analysis-target-view");
 
     // Load Tree Explorer
-    async function loadAnalysisTreeData() {
+    async function loadAnalysisTreeData(signal) {
         if (!treeListContainer) return;
-        const res = await apiFetch("/api/targets/tree");
+        const url = "/api/targets/tree";
+        if (!isApiCachedFresh(url)) {
+            treeListContainer.innerHTML = `<div class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> 심사 대상 목록을 불러오는 중...</div>`;
+        }
+        const res = await apiFetch(url, { signal });
         if (!res) return;
 
         analysisTreeData = res;
@@ -3554,10 +3945,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
             if (firstId) {
-                selectAnalysisTarget(firstId);
+                selectAnalysisTarget(firstId, signal);
             }
         } else {
-            selectAnalysisTarget(selectedAnalysisTargetId);
+            selectAnalysisTarget(selectedAnalysisTargetId, signal);
         }
     }
 
@@ -3637,10 +4028,17 @@ document.addEventListener("DOMContentLoaded", () => {
                     itemDiv.setAttribute("data-target-id", t.id);
 
                     let badgeHtml = "";
+                    if (t.is_active === 0) {
+                        badgeHtml += `<span class="badge badge-secondary" style="font-size:10px; padding:1px 5px;" title="과거/종료 대상">종료</span>`;
+                    }
+                    if (t.risk_grade === "고위험") {
+                        badgeHtml += `<span class="tree-risk-dot risk-high" title="리스크 점수 ${t.risk_score}점">고위험</span>`;
+                    } else if (t.risk_grade === "주의") {
+                        badgeHtml += `<span class="tree-risk-dot risk-warn" title="리스크 점수 ${t.risk_score}점">주의</span>`;
+                    }
                     if (t.open_findings && t.open_findings > 0) {
                         badgeHtml += `<span class="badge-open-findings" title="미결/조치중 지적사항 ${t.open_findings}건">⚠️ ${t.open_findings}</span>`;
-                    }
-                    if (t.total_findings && t.total_findings > 0 && (!t.open_findings || t.open_findings === 0)) {
+                    } else if (t.total_findings && t.total_findings > 0) {
                         badgeHtml += `<span class="badge badge-secondary" style="font-size:10px; padding:1px 5px;" title="누적 지적사항 ${t.total_findings}건">${t.total_findings}</span>`;
                     }
 
@@ -3668,7 +4066,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function selectAnalysisTarget(targetId) {
+    function selectAnalysisTarget(targetId, signal) {
         selectedAnalysisTargetId = targetId;
         document.querySelectorAll(".tree-target-item").forEach(el => {
             const id = parseInt(el.getAttribute("data-target-id"));
@@ -3681,13 +4079,13 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         });
 
-        loadTargetAnalysis(targetId);
+        loadTargetAnalysis(targetId, signal);
     }
 
-    async function loadTargetAnalysis(targetId) {
+    async function loadTargetAnalysis(targetId, signal) {
         if (!targetId) return;
 
-        const data = await apiFetch(`/api/targets/${targetId}/analysis`);
+        const data = await apiFetch(`/api/targets/${targetId}/analysis`, { signal });
         if (!data || !data.target) {
             if (analysisEmptyState) analysisEmptyState.style.display = "block";
             if (analysisTargetView) analysisTargetView.style.display = "none";
@@ -3701,10 +4099,17 @@ document.addEventListener("DOMContentLoaded", () => {
         const t = data.target;
 
         // 1. Header Banner
-        document.getElementById("target-view-name").textContent = t.station_name;
+        document.getElementById("target-view-name").textContent = t.station_name + (t.is_active === 0 ? " (과거/종료)" : "");
         document.getElementById("target-view-category").textContent = t.category;
         document.getElementById("target-view-status").textContent = t.operation_status;
         document.getElementById("target-view-interval").textContent = `${t.base_interval || 2}년 주기`;
+
+        const riskProfile = data.risk_profile || { score: 0, grade: "양호", major_count: 0, minor_count: 0, ofi_count: 0 };
+        const riskBadge = document.getElementById("target-view-risk");
+        if (riskBadge) {
+            riskBadge.className = `badge badge-risk ${riskProfile.grade === "고위험" ? "risk-high" : (riskProfile.grade === "주의" ? "risk-warn" : "risk-low")}`;
+            riskBadge.textContent = `리스크: ${riskProfile.grade} (${riskProfile.score}점)`;
+        }
 
         // Specs Pills
         const specsContainer = document.getElementById("target-view-specs");
@@ -3716,13 +4121,13 @@ document.addEventListener("DOMContentLoaded", () => {
             acs.forEach(ac => {
                 const sp = document.createElement("span");
                 sp.className = "spec-pill ac";
-                sp.innerHTML = `<i class="fa-solid fa-plane"></i> ${ac}`;
+                sp.innerHTML = `<i class="fa-solid fa-plane"></i> ${escapeHtml(ac)}`;
                 specsContainer.appendChild(sp);
             });
             engs.forEach(eng => {
                 const sp = document.createElement("span");
                 sp.className = "spec-pill eng";
-                sp.innerHTML = `<i class="fa-solid fa-fire-flame-curved"></i> ${eng}`;
+                sp.innerHTML = `<i class="fa-solid fa-fire-flame-curved"></i> ${escapeHtml(eng)}`;
                 specsContainer.appendChild(sp);
             });
             if (acs.length === 0 && engs.length === 0) {
@@ -3738,10 +4143,8 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("kpi-audit-history-sub").textContent = lastAudit ? `최근: ${lastAudit.year}년 (${lastAudit.audit_type})` : "수행 이력 없음";
 
         const findings = data.findings || [];
-        const carCount = findings.filter(f => f.finding_type === "CAR").length;
-        const findCount = findings.filter(f => f.finding_type === "Finding").length;
         document.getElementById("kpi-findings-count").textContent = `${findings.length}건`;
-        document.getElementById("kpi-findings-sub").textContent = `CAR: ${carCount}건 / Finding: ${findCount}건`;
+        document.getElementById("kpi-findings-sub").textContent = `Major: ${riskProfile.major_count || 0} / Minor: ${riskProfile.minor_count || 0} / OFI: ${riskProfile.ofi_count || 0}`;
 
         const openFindings = findings.filter(f => f.action_status !== "조치완료");
         document.getElementById("kpi-open-findings-count").textContent = `${openFindings.length}건`;
@@ -3772,7 +4175,8 @@ document.addEventListener("DOMContentLoaded", () => {
             focusUpdatedLbl.textContent = focusNote.updated_at ? `마지막 저장: ${focusNote.updated_at} (작성: ${focusNote.updated_by || "심사원"})` : "등록된 사전 착안사항이 없습니다. 작성 후 저장해 주세요.";
         }
 
-        // 4. Vulnerability Stats Bars
+        // 4. Yearly Trend & Vulnerability Stats Bars
+        renderYearlyTrendChart(data.yearly_trend || []);
         renderVulnerabilityStats(data.tag_stats || [], findings.length);
 
         // 5. Multi-Year Pills (2026-2030)
@@ -3783,6 +4187,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 7. Audit History Table
         renderTargetHistoryTable(histories);
+    }
+
+    function renderYearlyTrendChart(yearlyTrend) {
+        const container = document.getElementById("yearly-trend-chart-container");
+        if (!container) return;
+        container.innerHTML = "";
+        const maxVal = Math.max(1, ...yearlyTrend.map(y => y.total || 0));
+        yearlyTrend.forEach(y => {
+            const total = y.total || 0;
+            const majH = Math.round(((y.Major || 0) / maxVal) * 78);
+            const minH = Math.round(((y.Minor || 0) / maxVal) * 78);
+            const ofiH = Math.round(((y.OFI || 0) / maxVal) * 78);
+            const col = document.createElement("div");
+            col.className = "trend-bar-col";
+            col.title = `${y.year}년: 총 ${total}건 (Major ${y.Major || 0}, Minor ${y.Minor || 0}, OFI ${y.OFI || 0})`;
+            col.innerHTML = `
+                <span class="trend-bar-val">${total > 0 ? total : ""}</span>
+                <div class="trend-bar-stack" style="height:${Math.max(total > 0 ? 6 : 2, majH + minH + ofiH)}px;">
+                    ${y.Major ? `<div class="trend-seg-major" style="height:${majH}px;"></div>` : ""}
+                    ${y.Minor ? `<div class="trend-seg-minor" style="height:${minH}px;"></div>` : ""}
+                    ${y.OFI ? `<div class="trend-seg-ofi" style="height:${ofiH}px;"></div>` : ""}
+                </div>
+                <span class="trend-bar-yr">${y.year.slice(2)}년</span>
+            `;
+            container.appendChild(col);
+        });
     }
 
     function renderVulnerabilityStats(tagStats, totalFindingsCount) {
@@ -3801,7 +4231,7 @@ document.addEventListener("DOMContentLoaded", () => {
             itemDiv.className = "vuln-item";
             itemDiv.innerHTML = `
                 <div class="vuln-header">
-                    <span><i class="fa-solid fa-tag" style="color:var(--accent-orange); font-size:11px; margin-right:4px;"></i>${stat.category_tag}</span>
+                    <span><i class="fa-solid fa-tag" style="color:var(--accent-orange); font-size:11px; margin-right:4px;"></i>${escapeHtml(stat.category_tag)}${stat.is_repeat ? `<span class="repeat-badge">🔁 반복지적</span>` : ""}</span>
                     <span><strong>${stat.count}건</strong> (${pct}%)</span>
                 </div>
                 <div class="vuln-bar-bg">
@@ -3865,33 +4295,43 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        const frag = document.createDocumentFragment();
         filtered.forEach(f => {
             const card = document.createElement("div");
-            const typeClass = (f.finding_type || "Finding").toLowerCase();
+            const typeClass = (f.finding_type || "Finding").toLowerCase().replace(/[^a-z0-9_-]/g, "");
             card.className = `finding-item-card type-${typeClass}`;
 
             const statusClass = f.action_status === "조치완료" ? "status-done" : (f.action_status === "조치중" ? "status-progress" : "status-open");
 
-            let regHtml = f.regulation_ref ? `<div class="finding-info-block"><div class="finding-info-label"><i class="fa-solid fa-scale-balanced"></i> 근거 규정</div><div class="finding-info-val">${f.regulation_ref}</div></div>` : "";
-            let rootHtml = f.root_cause ? `<div class="finding-info-block"><div class="finding-info-label"><i class="fa-solid fa-magnifying-glass-chart"></i> 원인 분석</div><div class="finding-info-val">${f.root_cause}</div></div>` : "";
-            let actionHtml = f.action_taken ? `<div class="finding-info-block" style="grid-column: span 2;"><div class="finding-info-label"><i class="fa-solid fa-wrench" style="color:#10b981;"></i> 개선조치 내용</div><div class="finding-info-val" style="color:#86efac;">${f.action_taken}</div></div>` : "";
+            let regHtml = f.regulation_ref ? `<div class="finding-info-block"><div class="finding-info-label"><i class="fa-solid fa-scale-balanced"></i> 근거 규정</div><div class="finding-info-val">${escapeHtml(f.regulation_ref)}</div></div>` : "";
+            let rootHtml = f.root_cause ? `<div class="finding-info-block"><div class="finding-info-label"><i class="fa-solid fa-magnifying-glass-chart"></i> 원인 분석 (Root Cause)</div><div class="finding-info-val">${escapeHtml(f.root_cause)}</div></div>` : "";
+            let actionHtml = f.action_taken ? `<div class="finding-info-block" style="grid-column: span 2;"><div class="finding-info-label"><i class="fa-solid fa-wrench" style="color:#10b981;"></i> 개선조치 내용</div><div class="finding-info-val" style="color:#86efac;">${escapeHtml(f.action_taken)}</div></div>` : "";
+            let reportDetailHtml = f.report_detail ? `
+                <details class="report-detail-box">
+                    <summary><i class="fa-solid fa-file-lines"></i> 심사결과서 원문 발췌 상세 보기 (${escapeHtml(f.audit_no || "결과보고")})</summary>
+                    <pre>${escapeHtml(f.report_detail)}</pre>
+                </details>
+            ` : "";
 
             card.innerHTML = `
                 <div class="finding-top-row">
                     <div class="finding-badges-wrap">
-                        <span class="badge-finding-type ${f.finding_type}">${f.finding_type}</span>
-                        ${f.category_tag ? `<span class="badge-tag"><i class="fa-solid fa-tag"></i> ${f.category_tag}</span>` : ""}
-                        <span class="badge-finding-status ${statusClass}">${f.action_status}</span>
+                        <span class="badge-finding-type ${escapeHtml(f.finding_type)}">${escapeHtml(f.finding_type)}</span>
+                        ${f.standard_severity ? `<span class="badge badge-risk ${f.standard_severity === "Major" ? "risk-high" : (f.standard_severity === "OFI" ? "risk-low" : "risk-warn")}">${escapeHtml(f.standard_severity)}${f.original_rating ? ` (${escapeHtml(f.original_rating)})` : ""}</span>` : ""}
+                        ${f.car_no ? `<span class="badge badge-secondary" style="font-size:11px;">${escapeHtml(f.car_no)}</span>` : ""}
+                        ${(f.domain_tag || f.category_tag) ? `<span class="badge-tag"><i class="fa-solid fa-tag"></i> ${escapeHtml(f.domain_tag || f.category_tag)}</span>` : ""}
+                        <span class="badge-finding-status ${statusClass}">${escapeHtml(f.action_status)}</span>
                     </div>
                     <div class="finding-date-auditor">
-                        <i class="fa-regular fa-calendar" style="margin-right:4px;"></i>${f.audit_date}
-                        ${f.auditor ? ` | <i class="fa-solid fa-user-pen" style="margin-right:2px;"></i>${f.auditor}` : ""}
+                        <i class="fa-regular fa-calendar" style="margin-right:4px;"></i>${escapeHtml(f.audit_date)}
+                        ${f.auditor ? ` | <i class="fa-solid fa-user-pen" style="margin-right:2px;"></i>${escapeHtml(f.auditor)}` : ""}
                     </div>
                 </div>
-                <div class="finding-title-text">${f.title}</div>
-                <div class="finding-detail-text">${f.finding_detail}</div>
+                <div class="finding-title-text">${escapeHtml(f.title)}</div>
+                <div class="finding-detail-text">${escapeHtml(f.finding_detail)}</div>
                 
                 ${(regHtml || rootHtml || actionHtml) ? `<div class="finding-detail-grid">${regHtml}${rootHtml}${actionHtml}</div>` : ""}
+                ${reportDetailHtml}
 
                 <div class="finding-actions-row">
                     <button class="btn-finding-action btn-edit-finding"><i class="fa-solid fa-pen-to-square"></i> 수정</button>
@@ -3906,8 +4346,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 deleteFinding(f.id, f.title);
             });
 
-            container.appendChild(card);
+            frag.appendChild(card);
         });
+        container.appendChild(frag);
     }
 
     function renderTargetHistoryTable(histories) {
@@ -3920,18 +4361,20 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        const frag = document.createDocumentFragment();
         histories.forEach(h => {
             const tr = document.createElement("tr");
             tr.innerHTML = `
-                <td><strong>${h.year}년</strong></td>
-                <td><span class="badge ${h.audit_type === '직접' ? 'badge-blue' : 'badge-green'}">${h.audit_type}</span></td>
-                <td>${h.scheduled_date || '-'}</td>
-                <td>${h.auditor || '-'}</td>
-                <td><span class="badge ${h.status === '완료' ? 'badge-green' : 'badge-orange'}">${h.status}</span></td>
-                <td><small style="color:var(--text-secondary);">${h.remarks || '-'}</small></td>
+                <td><strong>${escapeHtml(h.year)}년</strong></td>
+                <td><span class="badge ${h.audit_type === '직접' ? 'badge-blue' : 'badge-green'}">${escapeHtml(h.audit_type)}</span></td>
+                <td>${escapeHtml(h.scheduled_date || '-')}</td>
+                <td>${escapeHtml(h.auditor || '-')}</td>
+                <td><span class="badge ${h.status === '완료' ? 'badge-green' : 'badge-orange'}">${escapeHtml(h.status)}</span></td>
+                <td><small style="color:var(--text-secondary);">${escapeHtml(h.remarks || '-')}</small></td>
             `;
-            tbody.appendChild(tr);
+            frag.appendChild(tr);
         });
+        tbody.appendChild(frag);
     }
 
     const btnSaveFocusNote = document.getElementById("btn-save-focus-note");
@@ -3957,10 +4400,67 @@ document.addEventListener("DOMContentLoaded", () => {
             btnSaveFocusNote.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> 착안사항 저장`;
 
             if (res && res.status === "success") {
+                invalidateDataCache('finding');
                 showToast(res.message, "success");
                 loadTargetAnalysis(selectedAnalysisTargetId);
             }
         });
+    }
+
+    const modalBriefing = document.getElementById("modal-pre-audit-briefing");
+    const btnOpenBriefing = document.getElementById("btn-open-briefing-modal");
+    const btnCloseBriefing = document.getElementById("btn-close-briefing-modal");
+    const btnPrintBriefing = document.getElementById("btn-print-briefing");
+    if (btnOpenBriefing && modalBriefing) {
+        btnOpenBriefing.addEventListener("click", () => {
+            if (!currentTargetAnalysisData || !currentTargetAnalysisData.target) return;
+            const d = currentTargetAnalysisData;
+            const t = d.target;
+            const rp = d.risk_profile || { score: 0, grade: "양호", major_count: 0, minor_count: 0, ofi_count: 0, open_count: 0 };
+            const findings = d.findings || [];
+            const openList = findings.filter(f => f.action_status !== "조치완료");
+            const recentMajor = findings.filter(f => (f.audit_date || "") >= "2023-01-01").slice(0, 6);
+            const peers = d.peer_top_domains || [];
+            const focus = d.focus_note || {};
+
+            const body = document.getElementById("briefing-modal-body");
+            body.innerHTML = `
+                <div class="briefing-section">
+                    <h4><i class="fa-solid fa-shield-halved"></i> 1. 대상 개요 및 리스크 프로파일 (RBO)</h4>
+                    <div><strong>대상:</strong> ${escapeHtml(t.station_name)} (${escapeHtml(t.category)}) | <strong>리스크 등급:</strong> <span class="badge badge-risk ${rp.grade === "고위험" ? "risk-high" : (rp.grade === "주의" ? "risk-warn" : "risk-low")}">${escapeHtml(rp.grade)} (${rp.score}점)</span></div>
+                    <div style="margin-top:4px; color:var(--text-secondary);">누적 ${findings.length}건 (Major ${rp.major_count}, Minor ${rp.minor_count}, OFI ${rp.ofi_count}) · 미결 ${rp.open_count}건</div>
+                </div>
+                <div class="briefing-section">
+                    <h4><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b;"></i> 2. 미결 / 조치중 항목 (${openList.length}건 - 현장 우선 확인)</h4>
+                    ${openList.length ? `<ul class="briefing-list">${openList.map(f => `<li><strong>[${escapeHtml(f.audit_date)}] ${escapeHtml(f.car_no || f.finding_type)}</strong> (${escapeHtml(f.standard_severity)}) - ${escapeHtml(f.title)}</li>`).join("")}</ul>` : `<div style="color:#34d399;">미결 항목 없음</div>`}
+                </div>
+                <div class="briefing-section">
+                    <h4><i class="fa-solid fa-history"></i> 3. 최근 주요 지적 이력 (2023~2026)</h4>
+                    ${recentMajor.length ? `<ul class="briefing-list">${recentMajor.map(f => `<li><strong>[${escapeHtml(f.audit_date)}] [${escapeHtml(f.domain_tag || f.category_tag || "일반")}]</strong> ${escapeHtml(f.title)} <span style="color:var(--text-secondary);">(${escapeHtml(f.standard_severity)} / ${escapeHtml(f.action_status)})</span></li>`).join("")}</ul>` : `<div style="color:var(--text-secondary);">최근 3년 지적 이력 없음</div>`}
+                </div>
+                <div class="briefing-section">
+                    <h4><i class="fa-solid fa-users-viewfinder"></i> 4. 동종 카테고리(${escapeHtml(t.category)}) 타 업체 빈발 지적 TOP 3</h4>
+                    ${peers.length ? `<ul class="briefing-list">${peers.map(p => `<li><strong>${escapeHtml(p.dtag)} (${p.cnt}건)</strong> — 대표 사례: ${escapeHtml(p.sample_title)}</li>`).join("")}</ul>` : `<div style="color:var(--text-secondary);">동종 카테고리 비교 데이터 없음</div>`}
+                </div>
+                <div class="briefing-section">
+                    <h4><i class="fa-solid fa-bullseye" style="color:#ef4444;"></i> 5. 사전 중점 착안사항 & 체크리스트</h4>
+                    <div style="white-space:pre-line; line-height:1.5;">${escapeHtml(focus.focus_points || "등록된 중점 착안사항 없음")}</div>
+                    ${focus.checklist_notes ? `<hr style="border-color:var(--card-border); margin:8px 0;"><div style="white-space:pre-line; color:var(--text-secondary);">${escapeHtml(focus.checklist_notes)}</div>` : ""}
+                </div>
+            `;
+            modalBriefing.classList.add("active");
+        });
+    }
+    if (btnCloseBriefing && modalBriefing) {
+        btnCloseBriefing.addEventListener("click", () => modalBriefing.classList.remove("active"));
+    }
+    if (modalBriefing) {
+        modalBriefing.addEventListener("click", (e) => {
+            if (e.target === modalBriefing) modalBriefing.classList.remove("active");
+        });
+    }
+    if (btnPrintBriefing) {
+        btnPrintBriefing.addEventListener("click", () => window.print());
     }
 
     if (treeSearchInput) {
@@ -4081,27 +4581,40 @@ document.addEventListener("DOMContentLoaded", () => {
                 due_date: dueDate
             };
 
-            const res = await apiFetch(url, {
-                method: "POST",
-                body: JSON.stringify(payload)
-            });
+            const submitBtn = document.getElementById("btn-submit-finding");
+            setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 저장 중...');
+            try {
+                const res = await apiFetch(url, {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                });
 
-            if (res && res.status === "success") {
-                showToast(res.message, "success");
-                closeFindingModal();
-                loadAnalysisTreeData();
-                loadTargetAnalysis(targetId);
+                if (res && res.status === "success") {
+                    invalidateDataCache('finding');
+                    showToast(res.message, "success");
+                    closeFindingModal();
+                    loadAnalysisTreeData();
+                    loadTargetAnalysis(targetId);
+                }
+            } finally {
+                setButtonLoading(submitBtn, false);
             }
         });
     }
 
     async function deleteFinding(findingId, title) {
-        if (!confirm(`'${title}' 지적사항을 삭제하시겠습니까?`)) return;
+        const ok = await showConfirmModal(`'${title}' 지적사항을 삭제하시겠습니까?`, {
+            title: "지적사항 삭제",
+            okText: "삭제",
+            danger: true
+        });
+        if (!ok) return;
         const res = await apiFetch("/api/findings/delete", {
             method: "POST",
             body: JSON.stringify({ id: findingId })
         });
         if (res && res.status === "success") {
+            invalidateDataCache('finding');
             showToast(res.message, "success");
             loadAnalysisTreeData();
             loadTargetAnalysis(selectedAnalysisTargetId);
@@ -4190,6 +4703,7 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
             btnSubmitFindingImport.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> 일괄 등록 실행`;
 
             if (res && res.status === "success") {
+                invalidateDataCache('finding');
                 showToast(res.message, "success");
                 closeFindingImportModal();
                 loadAnalysisTreeData();
@@ -4262,32 +4776,35 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     };
 
     // 체크리스트 탭 진입 로더
-    async function loadChecklistTab(targetIdToSelect = null, yearToSelect = null) {
+    async function loadChecklistTab(targetIdToSelect = null, yearToSelect = null, signal = undefined) {
         const yr = yearToSelect || selectedYear || 2026;
+        const needTargets = checklistAllTargets.length === 0;
 
-        // 1. 전체 심사 대상 목록 로드 (7대 카테고리 기준 그룹핑)
-        if (checklistAllTargets.length === 0) {
-            const targets = await apiFetch("/api/targets");
-            if (targets) checklistAllTargets = targets;
-        }
+        // 1. 대상 목록, 템플릿 목록, 작성 이력 카운트를 병렬 로드
+        const [targets] = await Promise.all([
+            needTargets ? apiFetch("/api/targets", { signal }) : Promise.resolve(checklistAllTargets),
+            loadChecklistTemplateOptions(signal),
+            updateChecklistHistoryBadge(signal)
+        ]);
+        if (needTargets && targets) checklistAllTargets = targets;
 
-        // 2. 템플릿 목록 로드
-        await loadChecklistTemplateOptions();
-
-        // 3. 점검 대상 드롭다운 구성
+        // 2. 점검 대상 드롭다운 구성
         populateChecklistTargetDropdown();
 
-        // 4. 선택할 대상 결정 (파라미터 > 기존 선택 > 본인 배정 일정 > 첫번째 대상)
+        // 3. 선택할 대상 결정 (파라미터 > 기존 선택 > 본인 배정 일정 > 첫번째 대상)
         let tid = targetIdToSelect;
         if (!tid) {
             if (selectedChecklistTargetId) {
                 tid = selectedChecklistTargetId;
             } else if (currentUser && currentUser.name) {
-                // 본인 배정 일정 중 하나 찾기
-                const scheds = await apiFetch(`/api/multi_year_schedule?start_year=${yr}&end_year=${yr}`);
+                const yrNum = parseInt(yr, 10);
+                const schedUrl = (yrNum >= 2026 && yrNum <= 2030)
+                    ? '/api/multi_year_schedule?start_year=2026&end_year=2030'
+                    : `/api/multi_year_schedule?start_year=${yr}&end_year=${yr}`;
+                const scheds = await apiFetch(schedUrl, { signal });
                 if (scheds) {
                     const myTarget = scheds.find(t => {
-                        const s = t.schedule && t.schedule[parseInt(yr)];
+                        const s = t.schedule && t.schedule[yrNum];
                         return s && s.auditor && (s.auditor.includes(currentUser.name) || (currentUser.employee_id && s.auditor.includes(currentUser.employee_id)));
                     });
                     if (myTarget) tid = myTarget.id;
@@ -4296,7 +4813,6 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
         }
 
         if (!tid && checklistAllTargets.length > 0) {
-            // 정비통제 우선 또는 첫번째 운항 대상
             const defaultTarget = checklistAllTargets.find(t => t.station_name === "정비통제") || checklistAllTargets.find(t => t.operation_status === "운항") || checklistAllTargets[0];
             if (defaultTarget) tid = defaultTarget.id;
         }
@@ -4304,11 +4820,8 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
         if (tid) {
             selectedChecklistTargetId = tid;
             if (checklistTargetSelect) checklistTargetSelect.value = tid;
-            await loadChecklistSessionData(tid, yr);
+            await loadChecklistSessionData(tid, yr, null, null, signal);
         }
-
-        // 5. 작성 이력 카운트 뱃지 갱신
-        updateChecklistHistoryBadge();
     }
 
     // 7대 분야별 대상 드롭다운 채우기
@@ -4351,14 +4864,15 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     }
 
     // 템플릿 드롭다운 채우기
-    async function loadChecklistTemplateOptions() {
+    async function loadChecklistTemplateOptions(signal) {
         if (!checklistTemplateSelect) return;
-        const templates = await apiFetch("/api/checklists/templates");
+        const templates = await apiFetch("/api/checklists/templates", { signal });
         if (!templates) return;
         checklistTemplates = templates;
 
         const currentVal = checklistTemplateSelect.value;
         checklistTemplateSelect.innerHTML = "";
+        const frag = document.createDocumentFragment();
 
         templates.forEach(tpl => {
             const opt = document.createElement("option");
@@ -4366,8 +4880,9 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
             const revStr = tpl.revision ? ` (${tpl.revision})` : "";
             const itemsStr = tpl.item_count ? ` [${tpl.item_count}문항]` : " [준비중]";
             opt.textContent = `[${tpl.code}] ${tpl.title}${revStr}${itemsStr}`;
-            checklistTemplateSelect.appendChild(opt);
+            frag.appendChild(opt);
         });
+        checklistTemplateSelect.appendChild(frag);
 
         if (currentVal && templates.some(t => t.code === currentVal)) {
             checklistTemplateSelect.value = currentVal;
@@ -4375,20 +4890,23 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     }
 
     // 세션 및 문항 데이터 로드
-    async function loadChecklistSessionData(targetId, year, reqTplCode = null, sessionId = null) {
+    async function loadChecklistSessionData(targetId, year, reqTplCode = null, sessionId = null, signal = undefined) {
         if (!checklistSurveyContainer) return;
-        checklistSurveyContainer.innerHTML = `
-            <div class="survey-loading-placeholder">
-                <i class="fa-solid fa-spinner fa-spin fa-2x"></i>
-                <p>품질점검표를 로딩하고 있습니다...</p>
-            </div>
-        `;
 
         let url = `/api/checklists/session/load?target_id=${targetId}&year=${year}`;
         if (reqTplCode) url += `&template_code=${encodeURIComponent(reqTplCode)}`;
         if (sessionId) url += `&session_id=${sessionId}`;
 
-        const data = await apiFetch(url);
+        if (!isApiCachedFresh(url)) {
+            checklistSurveyContainer.innerHTML = `
+                <div class="survey-loading-placeholder">
+                    <i class="fa-solid fa-spinner fa-spin fa-2x"></i>
+                    <p>품질점검표를 로딩하고 있습니다...</p>
+                </div>
+            `;
+        }
+
+        const data = await apiFetch(url, { signal });
         if (!data || !data.target) {
             checklistSurveyContainer.innerHTML = `
                 <div class="survey-loading-placeholder">
@@ -4402,7 +4920,7 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
         currentChecklistSession = data.session || {};
         currentChecklistTemplate = data.template || {};
         currentChecklistItems = data.items || [];
-        checklistResponses = currentChecklistSession.responses || {};
+        checklistResponses = JSON.parse(JSON.stringify(currentChecklistSession.responses || {}));
 
         // 템플릿 드롭다운 동기화
         if (checklistTemplateSelect && currentChecklistTemplate.code) {
@@ -4481,6 +4999,7 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
         }
 
         let currentSection = null;
+        const frag = document.createDocumentFragment();
 
         currentChecklistItems.forEach(item => {
             // 섹션 헤더 (섹션이 변경될 때 구분선 출력)
@@ -4491,9 +5010,9 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
                 secHeader.className = "survey-section-header";
                 secHeader.innerHTML = `
                     <i class="fa-solid fa-list-ol" style="color:var(--accent-blue);"></i>
-                    <span class="survey-section-title">섹션 ${sec}</span>
+                    <span class="survey-section-title">섹션 ${escapeHtml(sec)}</span>
                 `;
-                checklistSurveyContainer.appendChild(secHeader);
+                frag.appendChild(secHeader);
             }
 
             // 기존 답변 상태 가져오기
@@ -4510,20 +5029,20 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
             card.className = `survey-card ${cardStateClass}`;
             card.id = `survey-card-${item.id}`;
 
-            let extRefHtml = item.external_ref && item.external_ref !== "-" ? `<span class="badge-ref-ext"><i class="fa-solid fa-scale-balanced"></i> 대외: ${item.external_ref}</span>` : "";
-            let intRefHtml = item.internal_ref && item.internal_ref !== "-" ? `<span class="badge-ref-int"><i class="fa-solid fa-book"></i> 사내: ${item.internal_ref}</span>` : "";
+            let extRefHtml = item.external_ref && item.external_ref !== "-" ? `<span class="badge-ref-ext"><i class="fa-solid fa-scale-balanced"></i> 대외: ${escapeHtml(item.external_ref)}</span>` : "";
+            let intRefHtml = item.internal_ref && item.internal_ref !== "-" ? `<span class="badge-ref-int"><i class="fa-solid fa-book"></i> 사내: ${escapeHtml(item.internal_ref)}</span>` : "";
 
             card.innerHTML = `
                 <div class="survey-card-header">
                     <div class="survey-item-badges">
-                        <span class="badge-item-no">문항 ${item.item_no}</span>
-                        <span class="badge badge-gray" style="font-size:11px;">#${item.seq_no}</span>
+                        <span class="badge-item-no">문항 ${escapeHtml(item.item_no)}</span>
+                        <span class="badge badge-gray" style="font-size:11px;">#${escapeHtml(item.seq_no)}</span>
                         ${intRefHtml}
                         ${extRefHtml}
                     </div>
                 </div>
 
-                <div class="survey-requirement-box">${item.requirement}</div>
+                <div class="survey-requirement-box">${escapeHtml(item.requirement)}</div>
 
                 <div class="survey-choice-group">
                     <button type="button" class="btn-survey-choice choice-s ${currResult === 'S' ? 'active' : ''}" data-item-id="${item.id}" data-choice="S">
@@ -4539,7 +5058,7 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
 
                 <div class="survey-comment-wrap">
                     <label for="comment-item-${item.id}"><i class="fa-regular fa-comment-dots"></i> 심사원 의견 및 확인 사항 (Comments)</label>
-                    <textarea class="survey-comment-input" id="comment-item-${item.id}" rows="2" placeholder="점검 의견, 근거 자료 및 세부 내용을 기술하세요...">${currComment}</textarea>
+                    <textarea class="survey-comment-input" id="comment-item-${item.id}" data-item-id="${item.id}" rows="2" placeholder="점검 의견, 근거 자료 및 세부 내용을 기술하세요...">${escapeHtml(currComment)}</textarea>
                     <div class="survey-us-alert" id="us-alert-${item.id}" style="${currResult === 'U/S' ? 'display:flex;' : 'display:none;'}">
                         <i class="fa-solid fa-circle-exclamation"></i>
                         <span><strong>부적합(U/S) 항목:</strong> 심사완료 시 [심사 대상 분석] 지적사항(Finding)으로 자동 연동 등록됩니다.</span>
@@ -4547,25 +5066,31 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
                 </div>
             `;
 
-            // 3버튼 클릭 이벤트 바인딩
-            card.querySelectorAll(".btn-survey-choice").forEach(btn => {
-                btn.addEventListener("click", () => {
-                    const choice = btn.getAttribute("data-choice");
-                    selectSurveyChoice(item.id, choice);
-                });
-            });
+            frag.appendChild(card);
+        });
+        checklistSurveyContainer.appendChild(frag);
+    }
 
-            // 코멘트 입력 시 실시간 세션 메모리에 반영
-            const commentInput = card.querySelector(`#comment-item-${item.id}`);
-            commentInput.addEventListener("input", (e) => {
-                const text = e.target.value;
-                if (!checklistResponses[String(item.id)]) {
-                    checklistResponses[String(item.id)] = {};
-                }
-                checklistResponses[String(item.id)].comment = text;
-            });
+    if (checklistSurveyContainer) {
+        checklistSurveyContainer.addEventListener("click", (e) => {
+            const btn = e.target.closest(".btn-survey-choice");
+            if (!btn) return;
+            const itemId = parseInt(btn.getAttribute("data-item-id"), 10);
+            const choice = btn.getAttribute("data-choice");
+            if (!isNaN(itemId) && choice) {
+                selectSurveyChoice(itemId, choice);
+            }
+        });
 
-            checklistSurveyContainer.appendChild(card);
+        checklistSurveyContainer.addEventListener("input", (e) => {
+            const input = e.target.closest(".survey-comment-input");
+            if (!input) return;
+            const itemId = input.getAttribute("data-item-id");
+            if (!itemId) return;
+            if (!checklistResponses[itemId]) {
+                checklistResponses[itemId] = {};
+            }
+            checklistResponses[itemId].comment = input.value;
         });
     }
 
@@ -4663,7 +5188,7 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
             if (unanswered > 0) {
                 confirmMsg += `\n⚠️ 아직 답변하지 않은 문항이 ${unanswered}건 남아있습니다. 계속 완료하시겠습니까?`;
             }
-            if (!confirm(confirmMsg)) {
+            if (!(await showConfirmModal(confirmMsg, { title: "품질심사 완료 처리", okText: "심사완료" }))) {
                 return false;
             }
         }
@@ -4698,28 +5223,39 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
             sync_findings: isComplete
         };
 
-        const res = await apiFetch("/api/checklists/session/save", {
-            method: "POST",
-            body: JSON.stringify(payload)
-        });
+        const actionBtn = isComplete ? btnCompleteChecklist : btnSaveChecklistDraft;
+        setButtonLoading(actionBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 저장 중...');
+        try {
+            const res = await apiFetch("/api/checklists/session/save", {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
 
-        if (res && res.status === "success") {
-            if (!currentChecklistSession) currentChecklistSession = {};
-            currentChecklistSession.id = res.id;
-            currentChecklistSession.status = isComplete ? "완료" : "작성중";
+            if (res && res.status === "success") {
+                if (!currentChecklistSession) currentChecklistSession = {};
+                currentChecklistSession.id = res.id;
+                currentChecklistSession.status = isComplete ? "완료" : "작성중";
+                invalidateDataCache('checklist');
+                if (isComplete) {
+                    invalidateDataCache('schedule');
+                    invalidateDataCache('finding');
+                }
 
-            const statusBadge = document.getElementById("sticky-session-status");
-            if (statusBadge) {
-                statusBadge.textContent = isComplete ? "완료" : "작성중";
-                statusBadge.className = `badge ${isComplete ? "badge-green" : "badge-blue"}`;
+                const statusBadge = document.getElementById("sticky-session-status");
+                if (statusBadge) {
+                    statusBadge.textContent = isComplete ? "완료" : "작성중";
+                    statusBadge.className = `badge ${isComplete ? "badge-green" : "badge-blue"}`;
+                }
+
+                showToast(res.message, "success");
+                updateChecklistHistoryBadge();
+                return true;
+            } else {
+                showToast("체크리스트 저장에 실패했습니다.", "error");
+                return false;
             }
-
-            showToast(res.message, "success");
-            updateChecklistHistoryBadge();
-            return true;
-        } else {
-            showToast("체크리스트 저장에 실패했습니다.", "error");
-            return false;
+        } finally {
+            setButtonLoading(actionBtn, false);
         }
     }
 
@@ -4734,48 +5270,68 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     }
 
     // 작성 이력 모달 로더
-    async function openChecklistHistoryModal() {
+    let latestChecklistSessionsMap = new Map();
+
+    async function openChecklistHistoryModal(forceRefresh = false) {
         if (!modalChecklistHistory) return;
         modalChecklistHistory.classList.add("active");
 
         const tbody = document.getElementById("checklist-history-table-body");
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:30px;">작성 이력을 불러오는 중입니다...</td></tr>`;
+        if (forceRefresh || !isApiCachedFresh("/api/checklists/sessions")) {
+            tbody.innerHTML = `<tr><td colspan="9" class="loading-inline-state"><i class="fa-solid fa-spinner fa-spin"></i> 작성 이력을 불러오는 중입니다...</td></tr>`;
+        }
 
-        const sessions = await apiFetch("/api/checklists/sessions");
+        const sessions = await apiFetch("/api/checklists/sessions", { noCache: forceRefresh });
         if (!sessions || sessions.length === 0) {
+            latestChecklistSessionsMap = new Map();
             tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-secondary); padding:40px;">작성된 점검표 이력이 없습니다.</td></tr>`;
             return;
         }
 
+        latestChecklistSessionsMap = new Map(sessions.map(s => [s.id, s]));
         tbody.innerHTML = sessions.map((s, idx) => {
             const isDone = (s.status === "완료");
-            const statusHtml = `<span class="badge ${isDone ? 'badge-green' : 'badge-blue'}">${s.status || '작성중'}</span>`;
+            const statusHtml = `<span class="badge ${isDone ? 'badge-green' : 'badge-blue'}">${escapeHtml(s.status || '작성중')}</span>`;
             const statsHtml = `<span style="color:#10b981; font-weight:700;">S: ${s.s_count || 0}</span> / <span style="color:#ef4444; font-weight:700;">U/S: ${s.us_count || 0}</span> / <span style="color:#94a3b8;">N/A: ${s.na_count || 0}</span>`;
 
             return `
                 <tr>
                     <td>${idx + 1}</td>
-                    <td><code>${s.audit_no || '-'}</code></td>
-                    <td style="font-weight:700;">${s.station_name}</td>
-                    <td><span class="badge badge-accent" style="font-size:10.5px;">${s.template_code}</span> ${s.template_title || ''}</td>
-                    <td>${s.audit_date || s.audit_year}</td>
-                    <td>${s.auditor || '-'}</td>
+                    <td><code>${escapeHtml(s.audit_no || '-')}</code></td>
+                    <td style="font-weight:700;">${escapeHtml(s.station_name)}</td>
+                    <td><span class="badge badge-accent" style="font-size:10.5px;">${escapeHtml(s.template_code)}</span> ${escapeHtml(s.template_title || '')}</td>
+                    <td>${escapeHtml(s.audit_date || s.audit_year)}</td>
+                    <td>${escapeHtml(s.auditor || '-')}</td>
                     <td>${statusHtml}</td>
                     <td>${statsHtml}</td>
                     <td style="text-align:center; white-space:nowrap;">
-                        <button class="btn btn-primary btn-xs" onclick="resumeChecklistSession(${s.id}, ${s.target_id}, ${s.audit_year})" style="margin-right:4px;">
+                        <button type="button" class="btn btn-primary btn-xs" data-action="resume-session" data-id="${s.id}" style="margin-right:4px;">
                             <i class="fa-solid fa-pen-to-square"></i> 열람/수정
                         </button>
                         <a href="/api/checklists/session/${s.id}/export" class="btn btn-success btn-xs" style="margin-right:4px; text-decoration:none;">
                             <i class="fa-solid fa-file-excel"></i> 엑셀
                         </a>
-                        <button class="btn btn-xs" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);" onclick="deleteChecklistSession(${s.id}, '${s.station_name}')">
+                        <button type="button" class="btn btn-xs" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3);" data-action="delete-session" data-id="${s.id}">
                             <i class="fa-solid fa-trash"></i>
                         </button>
                     </td>
                 </tr>
             `;
         }).join("");
+    }
+
+    const checklistHistoryTbody = document.getElementById("checklist-history-table-body");
+    if (checklistHistoryTbody) {
+        checklistHistoryTbody.addEventListener("click", (e) => {
+            const btn = e.target.closest("[data-action]");
+            if (!btn) return;
+            const sid = parseInt(btn.getAttribute("data-id"), 10);
+            const sess = latestChecklistSessionsMap.get(sid);
+            if (!sess) return;
+            const action = btn.getAttribute("data-action");
+            if (action === "resume-session") resumeChecklistSession(sess.id, sess.target_id, sess.audit_year);
+            else if (action === "delete-session") deleteChecklistSession(sess.id, sess.station_name);
+        });
     }
 
     window.resumeChecklistSession = function(sessionId, targetId, year) {
@@ -4790,22 +5346,28 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     };
 
     window.deleteChecklistSession = async function(sessionId, stationName) {
-        if (!confirm(`'${stationName}'의 해당 점검표 작성 내역을 삭제하시겠습니까?`)) return;
+        const ok = await showConfirmModal(`'${stationName}'의 해당 점검표 작성 내역을 삭제하시겠습니까?`, {
+            title: "점검표 삭제",
+            okText: "삭제",
+            danger: true
+        });
+        if (!ok) return;
         const res = await apiFetch("/api/checklists/session/delete", {
             method: "POST",
             body: JSON.stringify({ id: sessionId })
         });
         if (res && res.status === "success") {
+            invalidateDataCache('checklist');
             showToast("점검표가 삭제되었습니다.", "info");
-            openChecklistHistoryModal();
+            openChecklistHistoryModal(true);
             updateChecklistHistoryBadge();
         }
     };
 
-    async function updateChecklistHistoryBadge() {
+    async function updateChecklistHistoryBadge(signal) {
         const badge = document.getElementById("checklist-history-count-badge");
         if (!badge) return;
-        const sessions = await apiFetch("/api/checklists/sessions");
+        const sessions = await apiFetch("/api/checklists/sessions", { signal });
         if (sessions) {
             badge.textContent = sessions.length;
         }
@@ -4852,7 +5414,7 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     }
 
     if (btnOpenChecklistHistory) {
-        btnOpenChecklistHistory.addEventListener("click", openChecklistHistoryModal);
+        btnOpenChecklistHistory.addEventListener("click", () => openChecklistHistoryModal(false));
     }
     if (btnCloseChecklistHistory) {
         btnCloseChecklistHistory.addEventListener("click", () => modalChecklistHistory.classList.remove("active"));
@@ -4886,6 +5448,7 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
             btnRescanTemplates.disabled = false;
             btnRescanTemplates.innerHTML = `<i class="fa-solid fa-rotate"></i> 양식 폴더 스캔`;
             if (res && res.status === "success") {
+                invalidateDataCache('checklist');
                 showToast(res.message, "success");
                 loadChecklistTemplateOptions();
             }
@@ -4899,10 +5462,14 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
                 return;
             }
             const yr = selectedYear || 2026;
-            const scheds = await apiFetch(`/api/multi_year_schedule?start_year=${yr}&end_year=${yr}`);
+            const yrNum = parseInt(yr, 10);
+            const schedUrl = (yrNum >= 2026 && yrNum <= 2030)
+                ? '/api/multi_year_schedule?start_year=2026&end_year=2030'
+                : `/api/multi_year_schedule?start_year=${yr}&end_year=${yr}`;
+            const scheds = await apiFetch(schedUrl);
             if (!scheds) return;
             const myTarget = scheds.find(t => {
-                const s = t.schedule && t.schedule[parseInt(yr)];
+                const s = t.schedule && t.schedule[yrNum];
                 return s && s.auditor && (s.auditor.includes(currentUser.name) || (currentUser.employee_id && s.auditor.includes(currentUser.employee_id)));
             });
             if (myTarget) {
@@ -4915,8 +5482,8 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     }
 
     if (btnResetNewChecklist) {
-        btnResetNewChecklist.addEventListener("click", () => {
-            if (confirm("현재 점검표를 신규 작성 모드로 초기화하시겠습니까?")) {
+        btnResetNewChecklist.addEventListener("click", async () => {
+            if (await showConfirmModal("현재 점검표를 신규 작성 모드로 초기화하시겠습니까?", { title: "새로 작성하기", okText: "초기화" })) {
                 checklistResponses = {};
                 if (currentChecklistSession) currentChecklistSession.id = null;
                 renderSurveyItems();
@@ -4936,30 +5503,41 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
 
             const code = document.getElementById("upload-template-code").value.trim();
             const category = document.getElementById("upload-template-category").value;
+            const submitBtn = document.getElementById("btn-submit-template-upload");
+            setButtonLoading(submitBtn, true, '<i class="fa-solid fa-spinner fa-spin"></i> 업로드 중...');
 
             const reader = new FileReader();
             reader.onload = async (evt) => {
-                const base64Data = evt.target.result.split(",")[1];
-                const res = await apiFetch("/api/checklists/upload_excel", {
-                    method: "POST",
-                    body: JSON.stringify({
-                        filename: file.name,
-                        content_base64: base64Data,
-                        code: code,
-                        category: category
-                    })
-                });
+                try {
+                    const base64Data = evt.target.result.split(",")[1];
+                    const res = await apiFetch("/api/checklists/upload_excel", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            filename: file.name,
+                            content_base64: base64Data,
+                            code: code,
+                            category: category
+                        })
+                    });
 
-                if (res && res.status === "success") {
-                    showToast(res.message, "success");
-                    modalTemplateUpload.classList.remove("active");
-                    await loadChecklistTemplateOptions();
-                    if (selectedChecklistTargetId) {
-                        loadChecklistSessionData(selectedChecklistTargetId, selectedYear, res.template.code);
+                    if (res && res.status === "success") {
+                        invalidateDataCache('checklist');
+                        showToast(res.message, "success");
+                        modalTemplateUpload.classList.remove("active");
+                        await loadChecklistTemplateOptions();
+                        if (selectedChecklistTargetId) {
+                            loadChecklistSessionData(selectedChecklistTargetId, selectedYear, res.template.code);
+                        }
+                    } else {
+                        showToast(res && res.detail ? res.detail : "업로드 중 오류가 발생했습니다.", "error");
                     }
-                } else {
-                    showToast(res && res.detail ? res.detail : "업로드 중 오류가 발생했습니다.", "error");
+                } finally {
+                    setButtonLoading(submitBtn, false);
                 }
+            };
+            reader.onerror = () => {
+                setButtonLoading(submitBtn, false);
+                showToast("파일을 읽는 중 오류가 발생했습니다.", "error");
             };
             reader.readAsDataURL(file);
         });

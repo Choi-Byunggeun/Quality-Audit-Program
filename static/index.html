@@ -219,9 +219,6 @@
 
                         <!-- Leaflet Map Container -->
                         <div id="leaflet-world-map" class="leaflet-map-container"></div>
-
-                        <!-- Floating Detail Tooltip Card -->
-                        <div id="map-tooltip" class="map-hover-tooltip" style="display:none;"></div>
                     </div>
                 </div>
 
@@ -587,6 +584,7 @@
                                         <span class="badge badge-category" id="target-view-category">운항정비 위탁</span>
                                         <span class="badge badge-status" id="target-view-status">운항</span>
                                         <span class="badge badge-interval" id="target-view-interval">2년 주기</span>
+                                        <span class="badge badge-risk risk-low" id="target-view-risk">리스크: 양호</span>
                                     </div>
                                     <h2 class="target-title" id="target-view-name">VAECO (DAD 다낭)</h2>
                                     <div class="target-specs-row" id="target-view-specs">
@@ -594,6 +592,9 @@
                                     </div>
                                 </div>
                                 <div class="target-header-actions">
+                                    <button class="btn btn-outline" id="btn-open-briefing-modal">
+                                        <i class="fa-solid fa-clipboard-list"></i> 사전 심사 브리핑
+                                    </button>
                                     <button class="btn btn-outline" id="btn-open-finding-import-modal">
                                         <i class="fa-solid fa-file-import"></i> 지적사항 일괄 임포트
                                     </button>
@@ -672,6 +673,24 @@
                                         </div>
                                         <textarea id="checklist-notes-input" class="checklist-textarea" placeholder="- [ ] 현장 공구실 토크렌치 검교정 스티커 전수 확인&#10;- [ ] 최근 3개월 Transit Check 점검표 서명 샘플링&#10;- [ ] 현지 투입 정비사 기종 한정 자격증 사본 대조"></textarea>
                                         <div class="focus-last-updated" id="focus-last-updated">마지막 수정: -</div>
+                                    </div>
+
+                                    <!-- Yearly Trend Chart (2020-2026) -->
+                                    <div class="section-card trend-card">
+                                        <div class="card-header-flex">
+                                            <div class="card-title">
+                                                <i class="fa-solid fa-chart-column" style="color:var(--accent-blue);"></i>
+                                                <span>연도별 지적 추이 (2020 ~ 2026)</span>
+                                            </div>
+                                            <div class="trend-legend">
+                                                <span class="legend-dot major">Major</span>
+                                                <span class="legend-dot minor">Minor</span>
+                                                <span class="legend-dot ofi">OFI</span>
+                                            </div>
+                                        </div>
+                                        <div id="yearly-trend-chart-container" class="trend-chart-wrap">
+                                            <!-- Dynamic Bars -->
+                                        </div>
                                     </div>
 
                                     <!-- Tag / Category Vulnerability Analysis -->
@@ -1445,7 +1464,6 @@
             </form>
         </div>
     </div>
-    <script src="/static/main.js"></script>
 
     <!-- MODAL: Auditor Alert Popup (자동 팝업) -->
     <div class="modal" id="auditor-alert-modal">
@@ -1964,6 +1982,42 @@
             </form>
         </div>
     </div>
+
+    <!-- MODAL: Pre-Audit Briefing Pack -->
+    <div class="modal" id="modal-pre-audit-briefing" role="dialog" aria-modal="true" aria-labelledby="briefing-modal-title">
+        <div class="modal-content" style="max-width:820px; max-height:88vh; overflow-y:auto;">
+            <div class="modal-header">
+                <h2 id="briefing-modal-title"><i class="fa-solid fa-clipboard-list" style="color:var(--accent-blue);"></i> 사전 심사 브리핑 (Pre-Audit Briefing Pack)</h2>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button type="button" class="btn btn-sm btn-outline" id="btn-print-briefing"><i class="fa-solid fa-print"></i> 인쇄 / PDF</button>
+                    <button type="button" class="close-btn" id="btn-close-briefing-modal">&times;</button>
+                </div>
+            </div>
+            <div id="briefing-modal-body" class="briefing-body">
+                <!-- Dynamic Briefing Content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Shared Confirm / Prompt Dialog -->
+    <div class="modal" id="app-dialog-modal" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title">
+        <div class="modal-content" style="max-width:440px;">
+            <div class="modal-header">
+                <h2 id="app-dialog-title">확인</h2>
+                <button type="button" class="close-btn" id="btn-close-app-dialog">&times;</button>
+            </div>
+            <p class="app-dialog-message" id="app-dialog-message"></p>
+            <div class="form-group" id="app-dialog-input-wrap" style="display:none; margin-top:14px;">
+                <input type="text" id="app-dialog-input" class="input-field" autocomplete="off">
+            </div>
+            <div class="form-actions" style="margin-top:20px;">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-app-dialog">취소</button>
+                <button type="button" class="btn btn-primary" id="btn-ok-app-dialog">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
     <!-- Application Script -->
     <script src="/static/main.js"></script>

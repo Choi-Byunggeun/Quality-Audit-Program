@@ -12,6 +12,8 @@ import io
 import base64
 import hmac
 import hashlib
+import gzip
+import sys
 import time
 import openpyxl
 import db_adapter
@@ -32,6 +34,8 @@ PORT = int(os.environ.get("PORT", 8000))
 
 # 서버리스(Vercel) 환경 호환 HMAC-SHA256 무상태 세션 토큰 키
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "tway-audit-planner-secret-2026-v1").encode("utf-8")
+if os.environ.get("VERCEL") and "SESSION_SECRET" not in os.environ:
+    print("[WARNING] SESSION_SECRET 환경변수가 설정되지 않아 기본 키를 사용 중입니다.", file=sys.stderr)
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 7  # 7일 유효
 
 # 로컬 호환 메모리 세션 저장소
@@ -173,8 +177,43 @@ def _ensure_targets_schema():
             c.execute("ALTER TABLE audit_targets ADD COLUMN engine_types TEXT DEFAULT ''")
         except Exception:
             pass
+    if "is_active" not in cols:
+        try:
+            c.execute("ALTER TABLE audit_targets ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
+
+PW_HASH_PREFIX = "pbkdf2_sha256$"
+PW_HASH_ITERATIONS = 100_000
+
+
+def hash_password(plain: str) -> str:
+    """PBKDF2-SHA256 솔트 해시 생성 (표준 라이브러리)"""
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", str(plain).encode("utf-8"), salt.encode("ascii"), PW_HASH_ITERATIONS).hex()
+    return f"{PW_HASH_PREFIX}{PW_HASH_ITERATIONS}${salt}${dk}"
+
+
+def verify_password(stored: str, provided: str):
+    """(일치 여부, 해시 업그레이드 필요 여부) 반환 — 기존 평문 계정 호환"""
+    if stored is None or provided is None:
+        return False, False
+    stored_str = str(stored)
+    provided_str = str(provided)
+    if stored_str.startswith(PW_HASH_PREFIX):
+        try:
+            _, iter_str, salt, expected_hex = stored_str.split("$", 3)
+            dk = hashlib.pbkdf2_hmac(
+                "sha256", provided_str.encode("utf-8"), salt.encode("ascii"), int(iter_str)
+            ).hex()
+            return hmac.compare_digest(dk, expected_hex), False
+        except Exception:
+            return False, False
+    matched = hmac.compare_digest(stored_str, provided_str)
+    return matched, matched
+
 
 def get_default_password_for_employee(emp_id: str) -> str:
     """사번에서 't'/'T'를 제외한 숫자 6자리 또는 숫자 부분 추출 (초기 비밀번호 규칙)"""
@@ -222,8 +261,8 @@ def _ensure_users_table():
     if not c.fetchone():
         c.execute("""
             INSERT INTO users (username, password, name, role, status)
-            VALUES ('admin', 'admin1234', '시스템 관리자', 'admin', 'approved')
-        """)
+            VALUES ('admin', ?, '시스템 관리자', 'admin', 'approved')
+        """, (hash_password("admin1234"),))
 
     # 심사원 목록을 users 테이블에 동기화
     c.execute("SELECT id, name_kr, employee_id, department FROM auditors")
@@ -236,7 +275,7 @@ def _ensure_users_table():
                 c.execute("""
                     INSERT INTO users (username, password, name, department, role, status, employee_id, auditor_id)
                     VALUES (?, ?, ?, ?, ?, 'approved', ?, ?)
-                """, (emp_id.upper(), init_pw, name_kr, dept or "", role, emp_id.upper(), aud_id))
+                """, (emp_id.upper(), hash_password(init_pw), name_kr, dept or "", role, emp_id.upper(), aud_id))
 
     # 지정 관리자 사번(T180476, T180479) role 보장
     for admin_emp in ("T180476", "T180479"):
@@ -264,10 +303,38 @@ def _ensure_findings_schema():
             action_status TEXT NOT NULL DEFAULT '조치완료',
             due_date TEXT DEFAULT '',
             auditor TEXT DEFAULT '',
+            audit_no TEXT DEFAULT '',
+            car_no TEXT DEFAULT '',
+            original_rating TEXT DEFAULT '',
+            standard_severity TEXT DEFAULT 'Minor',
+            domain_tag TEXT DEFAULT '',
+            extended_due_date TEXT DEFAULT '',
+            source_file TEXT DEFAULT '',
+            report_detail TEXT DEFAULT '',
+            raw_target_name TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (target_id) REFERENCES audit_targets(id)
         )
     """)
+    try:
+        c.execute("PRAGMA table_info(audit_findings)")
+        fcols = [r[1] if isinstance(r, (list, tuple)) else r["name"] for r in c.fetchall()]
+        extra_finding_cols = [
+            ("audit_no", "TEXT DEFAULT ''"),
+            ("car_no", "TEXT DEFAULT ''"),
+            ("original_rating", "TEXT DEFAULT ''"),
+            ("standard_severity", "TEXT DEFAULT 'Minor'"),
+            ("domain_tag", "TEXT DEFAULT ''"),
+            ("extended_due_date", "TEXT DEFAULT ''"),
+            ("source_file", "TEXT DEFAULT ''"),
+            ("report_detail", "TEXT DEFAULT ''"),
+            ("raw_target_name", "TEXT DEFAULT ''"),
+        ]
+        for cname, ctype in extra_finding_cols:
+            if cname not in fcols:
+                c.execute(f"ALTER TABLE audit_findings ADD COLUMN {cname} {ctype}")
+    except Exception:
+        pass
     c.execute("""
         CREATE TABLE IF NOT EXISTS audit_focus_notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,11 +349,32 @@ def _ensure_findings_schema():
     conn.commit()
     conn.close()
 
+def _ensure_indexes():
+    """자주 조회되는 조인/필터 컬럼 인덱스 보장"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    for stmt in (
+        "CREATE INDEX IF NOT EXISTS idx_audit_history_target_year ON audit_history(target_id, year)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_history_target_status ON audit_history(target_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_findings_target_status ON audit_findings(target_id, action_status)",
+        "CREATE INDEX IF NOT EXISTS idx_schedule_events_target_year ON schedule_events(target_id, event_year)",
+        "CREATE INDEX IF NOT EXISTS idx_checklist_items_template ON checklist_template_items(template_id, excel_row)",
+        "CREATE INDEX IF NOT EXISTS idx_checklist_sessions_target_year ON checklist_sessions(target_id, audit_year)",
+    ):
+        try:
+            c.execute(stmt)
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+
+
 if not db_adapter.is_turso_enabled() and not os.environ.get("VERCEL"):
     _ensure_auditors_table()
     _ensure_targets_schema()
     _ensure_users_table()
     _ensure_findings_schema()
+    _ensure_indexes()
 
 # 계획표(2027년 정비부문 품질심사 계획표 R.0) 기준 표준 점검표 카탈로그 매핑
 STANDARD_CHECKLIST_CATALOG = [
@@ -302,8 +390,9 @@ STANDARD_CHECKLIST_CATALOG = [
     {"code": "TW-MNT-013", "title": "도급업체 품질심사 점검표", "category": "국내업체", "targets": "대동금속"},
     {"code": "TW-MNT-014", "title": "엔진기술 품질심사 점검표", "category": "내부 부서,국내업체", "targets": "엔진기술,고암에이스항공,DMT"},
     {"code": "TW-MNT-016", "title": "항공기 기술관리 위탁업체 품질심사 점검표", "category": "국내업체,완전위탁업체", "targets": "기술관리"},
-    {"code": "TW-MNT-017", "title": "중정비 위탁정비업체 품질심사 점검표", "category": "중정비업체,엔진정비업체,국내업체", "targets": "중정비,엔진,KAEMS,N3,Lufthansa,GE ON WINGS,Sharp"},
+    {"code": "TW-MNT-017", "title": "항공기 중정비 위탁정비업체 품질심사 점검표", "category": "중정비업체,국내업체", "targets": "중정비,KAEMS,Sharp,AMECO,HAITE,SIAEP,LTP,GMF,STAECO,HAECO,STARCO,GCAM"},
     {"code": "TW-MNT-018", "title": "운항정비 위탁정비업체 품질심사 점검표", "category": "완전위탁업체", "targets": "완전위탁업체"},
+    {"code": "TW-MNT-019", "title": "엔진 중정비 위탁정비업체 품질심사 점검표", "category": "엔진정비업체,국내업체", "targets": "엔진,N3,Lufthansa,GE ON WINGS,ST Aerospace,SANAD,HAESL,SAESL,Standard Aero,GA Telesis"},
 ]
 
 def resolve_default_template_code(station_name: str, category: str) -> str:
@@ -334,7 +423,9 @@ def resolve_default_template_code(station_name: str, category: str) -> str:
         return "TW-MNT-007"
     if cat == "완전위탁업체":
         return "TW-MNT-018"
-    if cat in ("중정비업체", "엔진정비업체"):
+    if cat == "엔진정비업체":
+        return "TW-MNT-019"
+    if cat == "중정비업체":
         return "TW-MNT-017"
     if cat == "국내업체":
         if "대동금속" in s:
@@ -343,6 +434,8 @@ def resolve_default_template_code(station_name: str, category: str) -> str:
             return "TW-MNT-014"
         if "기술관리" in s:
             return "TW-MNT-016"
+        if "GE ON WINGS" in s.upper() or "엔진" in s:
+            return "TW-MNT-019"
         return "TW-MNT-017"
     return "TW-MNT-018"
 
@@ -435,16 +528,23 @@ def parse_and_import_checklist_excel(excel_path: str, override_code: str = None,
     if not header_row:
         return None
 
-    # 파일명에서 코드(TW-MNT-xxx), 제목, 리비전(R.xx) 추출
+    # 파일명에서 코드(TW-MNT-xxx), 제목, 리비전(R.xx 또는 제정안) 추출
     m_code = re.search(r'(TW-[A-Z]+-\d+)', fname, re.IGNORECASE)
     code = (override_code or (m_code.group(1).upper() if m_code else os.path.splitext(fname)[0][:20])).strip()
 
     m_rev = re.search(r'\((R\.\d+)\)', fname, re.IGNORECASE)
-    revision = m_rev.group(1).upper() if m_rev else ""
+    if m_rev:
+        revision = m_rev.group(1).upper()
+    elif "제정안" in fname:
+        revision = "제정안"
+    else:
+        revision = ""
 
     header_title = str(ws.cell(1, 1).value or "").strip()
-    clean_title = re.sub(r'^\([^)]+\)\s*', '', os.path.splitext(fname)[0])
-    clean_title = re.sub(r'\s*\(R\.\d+\)\s*$', '', clean_title).strip()
+    clean_title = re.sub(r'^\d+\.\s*', '', os.path.splitext(fname)[0])
+    clean_title = re.sub(r'^\([^)]+\)\s*', '', clean_title)
+    clean_title = re.sub(r'\s*\(R\.\d+\)\s*$', '', clean_title)
+    clean_title = re.sub(r'\s*제정안\s*$', '', clean_title).strip()
     if not clean_title:
         clean_title = header_title or code
 
@@ -462,8 +562,7 @@ def parse_and_import_checklist_excel(excel_path: str, override_code: str = None,
         if req_val is None or str(req_val).strip() == "":
             continue
         seq_counter += 1
-        raw_seq = ws.cell(r, 1).value
-        seq_no = int(raw_seq) if isinstance(raw_seq, (int, float)) else seq_counter
+        seq_no = seq_counter
         sec_val = ws.cell(r, 2).value
         if sec_val is not None and str(sec_val).strip() != "":
             last_section = str(sec_val).strip()
@@ -503,28 +602,47 @@ def parse_and_import_checklist_excel(excel_path: str, override_code: str = None,
         """, (code, clean_title, revision, category, target_kw, excel_path, header_title))
         tid = c.lastrowid
 
-    c.execute("DELETE FROM checklist_template_items WHERE template_id = ?", (tid,))
+    batch_stmts = [("DELETE FROM checklist_template_items WHERE template_id = ?", (tid,))]
     for it in items:
-        c.execute("""
-            INSERT INTO checklist_template_items
+        batch_stmts.append((
+            """INSERT INTO checklist_template_items
             (template_id, seq_no, section_no, item_no, requirement, external_ref, internal_ref, excel_row)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (tid, it["seq_no"], it["section_no"], it["item_no"], it["requirement"], it["external_ref"], it["internal_ref"], it["excel_row"]))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (tid, it["seq_no"], it["section_no"], it["item_no"], it["requirement"], it["external_ref"], it["internal_ref"], it["excel_row"])
+        ))
+    db_adapter.execute_batch_rows(conn, batch_stmts)
 
     conn.commit()
     conn.close()
     return {"id": tid, "code": code, "title": clean_title, "revision": revision, "item_count": len(items)}
 
-def sync_checklist_templates_from_excel():
-    """품질심사 체크리스트 폴더 및 루트 폴더의 점검표 엑셀을 스캔하여 자동 등록"""
-    scan_dirs = [CHECKLIST_DIR, BASE_DIR]
+def sync_checklist_templates_from_excel(reset_existing: bool = False):
+    """품질심사 체크리스트 폴더의 점검표 엑셀을 스캔하여 자동 등록"""
+    if reset_existing:
+        conn = get_db_connection()
+        db_adapter.execute_batch_rows(conn, [
+            ("DELETE FROM checklist_sessions", None),
+            ("DELETE FROM checklist_template_items", None),
+            ("DELETE FROM checklist_templates", None),
+        ])
+        conn.commit()
+        conn.close()
+
+    # CHECKLIST_DIR 우선 스캔 (번호 접두사 순 정렬), 구버전 루트 파일 덮어쓰기 방지
+    scan_dirs = [CHECKLIST_DIR] if os.path.exists(CHECKLIST_DIR) else [BASE_DIR]
     imported = []
     seen_codes = set()
     for d in scan_dirs:
         if not os.path.exists(d):
             continue
-        for fname in sorted(os.listdir(d)):
+        def _sort_key(fn):
+            m = re.match(r'^(\d+)\.', fn)
+            return (int(m.group(1)) if m else 999, fn)
+        for fname in sorted(os.listdir(d), key=_sort_key):
             if not fname.lower().endswith((".xlsx", ".xlsm")) or fname.startswith("~$"):
+                continue
+            m_code = re.search(r'(TW-[A-Z]+-\d+)', fname, re.IGNORECASE)
+            if m_code and m_code.group(1).upper() in seen_codes:
                 continue
             fpath = os.path.join(d, fname)
             res = parse_and_import_checklist_excel(fpath)
@@ -726,25 +844,18 @@ def _compute_schedule_for_target(target, last_audit, events, existing_histories,
 
 
 def generate_all_schedules_bulk(start_year: int = 2026, end_year: int = 2030):
-    """전체 대상의 다년도 스케줄을 단 3번의 DB 조회로 일괄 계산"""
+    """전체 대상의 다년도 스케줄을 단일 배치 DB 조회로 일괄 계산"""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM audit_targets ORDER BY id ASC")
-    targets = [dict(r) for r in cursor.fetchall()]
-
-    cursor.execute("""
-        SELECT * FROM audit_history
-        WHERE year <= ?
-        ORDER BY target_id ASC, year DESC
-    """, (end_year,))
-    all_histories = [dict(r) for r in cursor.fetchall()]
-
-    cursor.execute("""
-        SELECT target_id, event_year, detail FROM schedule_events
-        WHERE event_year BETWEEN ? AND ?
-    """, (start_year, end_year))
-    all_events = [dict(r) for r in cursor.fetchall()]
+    target_rows, history_rows, event_rows = db_adapter.execute_batch_rows(conn, [
+        ("SELECT * FROM audit_targets ORDER BY id ASC", None),
+        ("SELECT * FROM audit_history WHERE year <= ? ORDER BY target_id ASC, year DESC", (end_year,)),
+        ("SELECT target_id, event_year, detail FROM schedule_events WHERE event_year BETWEEN ? AND ?", (start_year, end_year)),
+    ])
     conn.close()
+
+    targets = [dict(r) for r in target_rows]
+    all_histories = [dict(r) for r in history_rows]
+    all_events = [dict(r) for r in event_rows]
 
     last_audit_by_tid = {}
     existing_by_tid = {}
@@ -777,39 +888,24 @@ def generate_all_schedules_bulk(start_year: int = 2026, end_year: int = 2030):
 
 def generate_schedule_for_target_api(target_id: int, start_year: int = 2026, end_year: int = 2030):
     conn = get_db_connection()
-    cursor = conn.cursor()
+    target_rows, last_rows, event_rows, hist_rows = db_adapter.execute_batch_rows(conn, [
+        ("SELECT * FROM audit_targets WHERE id = ?", (target_id,)),
+        ("SELECT year, audit_type, scheduled_date, auditor, status FROM audit_history WHERE target_id = ? AND year < ? ORDER BY year DESC LIMIT 1", (target_id, start_year)),
+        ("SELECT event_year, detail FROM schedule_events WHERE target_id = ? AND event_year BETWEEN ? AND ?", (target_id, start_year, end_year)),
+        ("SELECT * FROM audit_history WHERE target_id = ? AND year BETWEEN ? AND ?", (target_id, start_year, end_year)),
+    ])
+    conn.close()
 
-    cursor.execute("SELECT * FROM audit_targets WHERE id = ?", (target_id,))
-    target = cursor.fetchone()
-    if not target:
-        conn.close()
+    if not target_rows:
         return {}
-    target_dict = dict(target)
+    target_dict = dict(target_rows[0])
 
     if target_dict["operation_status"] == "비운항":
-        conn.close()
         return {year: None for year in range(start_year, end_year + 1)}
 
-    cursor.execute("""
-        SELECT year, audit_type, scheduled_date, auditor, status FROM audit_history
-        WHERE target_id = ? AND year < ?
-        ORDER BY year DESC LIMIT 1
-    """, (target_id, start_year))
-    last_row = cursor.fetchone()
-    last_audit = dict(last_row) if last_row else None
-
-    cursor.execute("""
-        SELECT event_year, detail FROM schedule_events
-        WHERE target_id = ? AND event_year BETWEEN ? AND ?
-    """, (target_id, start_year, end_year))
-    events = {r["event_year"]: r["detail"] for r in cursor.fetchall()}
-
-    cursor.execute("""
-        SELECT * FROM audit_history
-        WHERE target_id = ? AND year BETWEEN ? AND ?
-    """, (target_id, start_year, end_year))
-    existing_histories = {r["year"]: dict(r) for r in cursor.fetchall()}
-    conn.close()
+    last_audit = dict(last_rows[0]) if last_rows else None
+    events = {r["event_year"]: r["detail"] for r in event_rows}
+    existing_histories = {r["year"]: dict(r) for r in hist_rows}
 
     return _compute_schedule_for_target(target_dict, last_audit, events, existing_histories, start_year, end_year)
 
@@ -819,14 +915,41 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
         # Suppress logging
         pass
 
-    def send_json_response(self, data, status_code=200):
+    def _accepts_gzip(self) -> bool:
+        return "gzip" in (self.headers.get("Accept-Encoding", "") or "").lower()
+
+    def _send_bytes_response(self, raw_bytes: bytes, content_type: str, status_code: int = 200, extra_headers=None, compressible: bool = True):
+        payload = raw_bytes
+        use_gzip = compressible and len(raw_bytes) >= 1024 and self._accepts_gzip()
+        if use_gzip:
+            payload = gzip.compress(raw_bytes, compresslevel=5)
+
         self.send_response(status_code)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header("Content-Type", content_type)
+        if extra_headers:
+            for k, v in extra_headers:
+                self.send_header(k, v)
+        if use_gzip:
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        self.wfile.write(payload)
+
+    def send_json_response(self, data, status_code=200):
+        raw_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self._send_bytes_response(
+            raw_bytes,
+            "application/json; charset=utf-8",
+            status_code=status_code,
+            extra_headers=[
+                ("Cache-Control", "no-store"),
+                ("Access-Control-Allow-Origin", "*"),
+                ("Access-Control-Allow-Headers", "Content-Type, Authorization"),
+                ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+            ],
+            compressible=True,
+        )
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -864,13 +987,27 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return None
         return user
 
-    def serve_static_file(self, file_path, content_type):
+    def serve_static_file(self, file_path, content_type, cache_control=None):
         if os.path.exists(file_path) and os.path.isfile(file_path):
-            self.send_response(200)
-            self.send_header('Content-Type', content_type)
-            self.end_headers()
-            with open(file_path, 'rb') as f:
-                self.wfile.write(f.read())
+            st = os.stat(file_path)
+            etag = f'W/"{int(st.st_mtime)}-{st.st_size}"'
+            cc = cache_control or ("no-cache" if content_type.startswith("text/html") else "public, max-age=300, must-revalidate")
+            if (self.headers.get("If-None-Match") or "").strip() == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", cc)
+                self.end_headers()
+                return
+            with open(file_path, "rb") as f:
+                raw_bytes = f.read()
+            is_text = content_type.startswith(("text/", "application/javascript", "application/json", "image/svg+xml"))
+            self._send_bytes_response(
+                raw_bytes,
+                content_type,
+                status_code=200,
+                extra_headers=[("ETag", etag), ("Cache-Control", cc)],
+                compressible=is_text,
+            )
         else:
             self.send_error(404, "File Not Found")
 
@@ -884,13 +1021,17 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             self.serve_static_file(os.path.join(STATIC_DIR, "index.html"), "text/html; charset=utf-8")
             return
         elif path.startswith("/static/"):
-            relative_path = path[8:]
-            file_path = os.path.join(STATIC_DIR, relative_path)
+            relative_path = urllib.parse.unquote(path[8:]).lstrip("/\\")
+            real_static = os.path.realpath(STATIC_DIR)
+            file_path = os.path.realpath(os.path.join(real_static, relative_path))
+            if os.path.commonpath([real_static, file_path]) != real_static:
+                self.send_error(403, "Forbidden")
+                return
             
             if file_path.endswith(".css"):
-                content_type = "text/css"
+                content_type = "text/css; charset=utf-8"
             elif file_path.endswith(".js"):
-                content_type = "application/javascript"
+                content_type = "application/javascript; charset=utf-8"
             elif file_path.endswith(".png"):
                 content_type = "image/png"
             elif file_path.endswith(".webp"):
@@ -898,9 +1039,9 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             elif file_path.endswith(".svg"):
                 content_type = "image/svg+xml"
             elif file_path.endswith(".json"):
-                content_type = "application/json"
+                content_type = "application/json; charset=utf-8"
             else:
-                content_type = "text/plain"
+                content_type = "text/plain; charset=utf-8"
                 
             self.serve_static_file(file_path, content_type)
             return
@@ -932,19 +1073,46 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             cursor = conn.cursor()
             categories = ["해외운항지점", "완전위탁업체", "엔진정비업체", "중정비업체", "국내업체", "내부 부서", "국내운항지점"]
             cursor.execute("""
-                SELECT t.*, 
-                    (SELECT COUNT(*) FROM audit_findings f WHERE f.target_id = t.id) as total_findings,
-                    (SELECT COUNT(*) FROM audit_findings f WHERE f.target_id = t.id AND f.action_status != '조치완료') as open_findings,
-                    (SELECT MAX(scheduled_date) FROM audit_history h WHERE h.target_id = t.id AND h.status = '완료') as last_audit_date,
-                    (SELECT MIN(scheduled_date) FROM audit_history h WHERE h.target_id = t.id AND h.status = '계획') as next_audit_date
+                SELECT t.*,
+                    COALESCE(f_agg.total_findings, 0) AS total_findings,
+                    COALESCE(f_agg.open_findings, 0) AS open_findings,
+                    COALESCE(f_agg.major_findings, 0) AS major_findings,
+                    COALESCE(f_agg.minor_findings, 0) AS minor_findings,
+                    COALESCE(f_agg.ofi_findings, 0) AS ofi_findings,
+                    h_agg.last_audit_date,
+                    h_agg.next_audit_date
                 FROM audit_targets t
-                ORDER BY t.id ASC
+                LEFT JOIN (
+                    SELECT target_id,
+                           COUNT(*) AS total_findings,
+                           SUM(CASE WHEN action_status != '조치완료' THEN 1 ELSE 0 END) AS open_findings,
+                           SUM(CASE WHEN standard_severity = 'Major' THEN 1 ELSE 0 END) AS major_findings,
+                           SUM(CASE WHEN standard_severity = 'Minor' THEN 1 ELSE 0 END) AS minor_findings,
+                           SUM(CASE WHEN standard_severity = 'OFI' THEN 1 ELSE 0 END) AS ofi_findings
+                    FROM audit_findings
+                    GROUP BY target_id
+                ) f_agg ON f_agg.target_id = t.id
+                LEFT JOIN (
+                    SELECT target_id,
+                           MAX(CASE WHEN status = '완료' THEN scheduled_date END) AS last_audit_date,
+                           MIN(CASE WHEN status = '계획' THEN scheduled_date END) AS next_audit_date
+                    FROM audit_history
+                    GROUP BY target_id
+                ) h_agg ON h_agg.target_id = t.id
+                ORDER BY COALESCE(t.is_active, 1) DESC, t.id ASC
             """)
             rows = [dict(r) for r in cursor.fetchall()]
             conn.close()
 
             tree = {cat: [] for cat in categories}
             for r in rows:
+                maj = r.get("major_findings") or 0
+                mino = r.get("minor_findings") or 0
+                ofi = r.get("ofi_findings") or 0
+                opn = r.get("open_findings") or 0
+                rscore = maj * 5 + mino * 2 + ofi * 1 + opn * 4
+                r["risk_score"] = rscore
+                r["risk_grade"] = "고위험" if (rscore >= 15 or opn >= 2) else ("주의" if (rscore >= 6 or opn >= 1) else "양호")
                 cat = r.get("category", "완전위탁업체")
                 if cat not in tree:
                     tree[cat] = []
@@ -967,54 +1135,99 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                     return
 
                 conn = get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM audit_targets WHERE id = ?", (target_id,))
-                target = cursor.fetchone()
-                if not target:
-                    conn.close()
+                target_rows, hist_rows, finding_rows, focus_rows, event_rows, peer_rows = db_adapter.execute_batch_rows(conn, [
+                    ("SELECT * FROM audit_targets WHERE id = ?", (target_id,)),
+                    ("SELECT * FROM audit_history WHERE target_id = ? ORDER BY year DESC, scheduled_date DESC", (target_id,)),
+                    ("SELECT * FROM audit_findings WHERE target_id = ? ORDER BY audit_date DESC, id DESC", (target_id,)),
+                    ("SELECT * FROM audit_focus_notes WHERE target_id = ?", (target_id,)),
+                    ("SELECT event_year, detail FROM schedule_events WHERE target_id = ? AND event_year BETWEEN 2026 AND 2030", (target_id,)),
+                    ("""
+                        SELECT COALESCE(NULLIF(f.domain_tag, ''), f.category_tag) AS dtag,
+                               COUNT(*) AS cnt,
+                               MAX(f.title) AS sample_title
+                        FROM audit_findings f
+                        JOIN audit_targets t ON f.target_id = t.id
+                        WHERE t.category = (SELECT category FROM audit_targets WHERE id = ?)
+                          AND t.id != ?
+                          AND COALESCE(NULLIF(f.domain_tag, ''), f.category_tag) != ''
+                        GROUP BY dtag
+                        ORDER BY cnt DESC
+                        LIMIT 3
+                    """, (target_id, target_id)),
+                ])
+                conn.close()
+
+                if not target_rows:
                     self.send_json_response({"detail": "심사 대상을 찾을 수 없습니다."}, 404)
                     return
-                target_dict = dict(target)
+                target_dict = dict(target_rows[0])
+                histories = [dict(r) for r in hist_rows]
+                findings = [dict(r) for r in finding_rows]
+                focus_dict = dict(focus_rows[0]) if focus_rows else None
+                peer_top_domains = [dict(r) for r in peer_rows]
 
-                # 심사 이력
-                cursor.execute("""
-                    SELECT * FROM audit_history 
-                    WHERE target_id = ? 
-                    ORDER BY year DESC, scheduled_date DESC
-                """, (target_id,))
-                histories = [dict(r) for r in cursor.fetchall()]
+                tag_counts = {}
+                yearly_map = {str(y): {"year": str(y), "Major": 0, "Minor": 0, "OFI": 0, "total": 0} for y in range(2020, 2027)}
+                maj_cnt = min_cnt = ofi_cnt = open_cnt = 0
+                for f in findings:
+                    tag = (f.get("domain_tag") or f.get("category_tag") or "").strip()
+                    if tag:
+                        tag_counts[tag] = tag_counts.get(tag, 0) + 1
+                    sev = (f.get("standard_severity") or "Minor").strip()
+                    if sev == "Major":
+                        maj_cnt += 1
+                    elif sev == "OFI":
+                        ofi_cnt += 1
+                    else:
+                        sev = "Minor"
+                        min_cnt += 1
+                    if f.get("action_status") != "조치완료":
+                        open_cnt += 1
+                    yr = str(f.get("audit_date") or "")[:4]
+                    if yr in yearly_map:
+                        yearly_map[yr][sev] += 1
+                        yearly_map[yr]["total"] += 1
 
-                # 지적/개선조치 사항
-                cursor.execute("""
-                    SELECT * FROM audit_findings 
-                    WHERE target_id = ? 
-                    ORDER BY audit_date DESC, id DESC
-                """, (target_id,))
-                findings = [dict(r) for r in cursor.fetchall()]
+                tag_stats = [
+                    {"category_tag": k, "count": v, "is_repeat": v >= 2}
+                    for k, v in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+                ]
+                repeat_count = sum(1 for t in tag_stats if t["is_repeat"])
+                risk_score = maj_cnt * 5 + min_cnt * 2 + ofi_cnt * 1 + open_cnt * 4 + repeat_count * 3
+                risk_grade = "고위험" if (risk_score >= 15 or open_cnt >= 2) else ("주의" if (risk_score >= 6 or open_cnt >= 1) else "양호")
+                risk_profile = {
+                    "score": risk_score,
+                    "grade": risk_grade,
+                    "major_count": maj_cnt,
+                    "minor_count": min_cnt,
+                    "ofi_count": ofi_cnt,
+                    "open_count": open_cnt,
+                    "repeat_count": repeat_count,
+                }
 
-                # 카테고리별/태그별 통계
-                cursor.execute("""
-                    SELECT category_tag, COUNT(*) as count 
-                    FROM audit_findings 
-                    WHERE target_id = ? AND category_tag != ''
-                    GROUP BY category_tag
-                    ORDER BY count DESC
-                """, (target_id,))
-                tag_stats = [dict(r) for r in cursor.fetchall()]
+                last_audit = None
+                existing_histories = {}
+                for h in histories:
+                    yr = h["year"]
+                    if yr < 2026:
+                        if last_audit is None:
+                            last_audit = h
+                    elif 2026 <= yr <= 2030:
+                        existing_histories.setdefault(yr, h)
 
-                # 사전 착안사항 메모
-                cursor.execute("SELECT * FROM audit_focus_notes WHERE target_id = ?", (target_id,))
-                focus_note = cursor.fetchone()
-                focus_dict = dict(focus_note) if focus_note else None
-
-                conn.close()
-                multi_year_schedule = generate_schedule_for_target_api(target_id, 2026, 2030)
+                events = {r["event_year"]: r["detail"] for r in event_rows}
+                multi_year_schedule = _compute_schedule_for_target(
+                    target_dict, last_audit, events, existing_histories, 2026, 2030
+                )
 
                 self.send_json_response({
                     "target": target_dict,
                     "histories": histories,
                     "findings": findings,
                     "tag_stats": tag_stats,
+                    "risk_profile": risk_profile,
+                    "yearly_trend": [yearly_map[str(y)] for y in range(2020, 2027)],
+                    "peer_top_domains": peer_top_domains,
                     "focus_note": focus_dict,
                     "schedule_2026_2030": multi_year_schedule
                 })
@@ -1389,36 +1602,37 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                     target_id = session_row["target_id"]
                     year = session_row["audit_year"]
 
-            c.execute("SELECT * FROM audit_targets WHERE id = ?", (target_id,))
-            target = c.fetchone()
-            if not target:
+            sched_start = min(2026, year)
+            sched_end = max(2026, year)
+            batch_stmts = [
+                ("SELECT * FROM audit_targets WHERE id = ?", (target_id,)),
+                ("SELECT * FROM checklist_templates ORDER BY id ASC", None),
+                ("SELECT * FROM checklist_sessions WHERE target_id = ? AND audit_year = ? ORDER BY updated_at DESC LIMIT 1", (target_id, year)),
+                ("SELECT * FROM audit_history WHERE target_id = ? AND year <= ? ORDER BY year DESC", (target_id, sched_end)),
+                ("SELECT event_year, detail FROM schedule_events WHERE target_id = ? AND event_year BETWEEN ? AND ?", (target_id, sched_start, sched_end)),
+            ]
+            target_rows, tpl_rows, latest_sess_rows, hist_rows, event_rows = db_adapter.execute_batch_rows(conn, batch_stmts)
+
+            if not target_rows:
                 conn.close()
                 self.send_json_response({"detail": "심사 대상을 찾을 수 없습니다."}, 404)
                 return
-            target_dict = dict(target)
+            target_dict = dict(target_rows[0])
 
-            # 매칭되는 기본 점검표 코드 결정
             default_code = req_tpl_code or resolve_default_template_code(target_dict["station_name"], target_dict["category"])
 
-            if not session_row and not req_tpl_code:
-                c.execute("""
-                    SELECT * FROM checklist_sessions
-                    WHERE target_id = ? AND audit_year = ?
-                    ORDER BY updated_at DESC LIMIT 1
-                """, (target_id, year))
-                session_row = c.fetchone()
+            if not session_row and not req_tpl_code and latest_sess_rows:
+                session_row = latest_sess_rows[0]
 
+            all_templates = [dict(r) for r in tpl_rows]
+            tpl_dict = None
             if session_row and not req_tpl_code:
-                c.execute("SELECT * FROM checklist_templates WHERE id = ?", (session_row["template_id"],))
-                tpl_row = c.fetchone()
+                tpl_dict = next((t for t in all_templates if t["id"] == session_row["template_id"]), None)
             else:
-                c.execute("SELECT * FROM checklist_templates WHERE code = ?", (default_code,))
-                tpl_row = c.fetchone()
-                if not tpl_row:
-                    c.execute("SELECT * FROM checklist_templates ORDER BY id ASC LIMIT 1")
-                    tpl_row = c.fetchone()
+                tpl_dict = next((t for t in all_templates if t["code"] == default_code), None)
+                if not tpl_dict and all_templates:
+                    tpl_dict = all_templates[0]
 
-            tpl_dict = dict(tpl_row) if tpl_row else None
             items = []
             fallback_used = False
             if tpl_dict:
@@ -1428,7 +1642,6 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                     ORDER BY excel_row ASC, seq_no ASC, id ASC
                 """, (tpl_dict["id"],))
                 items = [dict(r) for r in c.fetchall()]
-                # 아직 해당 양식의 엑셀 파일이 등록되지 않아 문항이 0개인 경우, 예시 양식(TW-MNT-005 등 문항이 있는 템플릿) 문항을 안내와 함께 로드
                 if len(items) == 0:
                     c.execute("""
                         SELECT tpl.* FROM checklist_templates tpl
@@ -1448,8 +1661,22 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                         tpl_dict["fallback_from_code"] = fb_tpl["code"]
                         tpl_dict["fallback_from_title"] = fb_tpl["title"]
 
-            # 해당 연도 스케줄 정보(심사일자, 담당 심사원) 자동 채움 참조
-            sched_map = generate_schedule_for_target_api(target_id, start_year=min(2026, year), end_year=max(2026, year))
+            conn.close()
+
+            last_audit = None
+            existing_histories = {}
+            for r in hist_rows:
+                h = dict(r)
+                yr = h["year"]
+                if yr < sched_start:
+                    if last_audit is None:
+                        last_audit = h
+                elif sched_start <= yr <= sched_end:
+                    existing_histories.setdefault(yr, h)
+            events = {r["event_year"]: r["detail"] for r in event_rows}
+            sched_map = _compute_schedule_for_target(
+                target_dict, last_audit, events, existing_histories, sched_start, sched_end
+            )
             yr_sched = sched_map.get(year) or {}
 
             if session_row:
@@ -1480,7 +1707,6 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                     "responses": {}
                 }
 
-            conn.close()
             self.send_json_response({
                 "target": target_dict,
                 "template": tpl_dict,
@@ -1657,10 +1883,16 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         parsed_url = urllib.parse.urlparse(self.path)
         path = parsed_url.path
-        
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
-        data = json.loads(post_data.decode('utf-8'))
+
+        try:
+            content_length = int(self.headers.get('Content-Length', 0) or 0)
+            post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            data = json.loads(post_data.decode('utf-8')) if post_data else {}
+            if not isinstance(data, dict):
+                raise ValueError("JSON object required")
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            self.send_json_response({"detail": "올바른 JSON 요청 형식이 아닙니다."}, 400)
+            return
 
         # 접속 즉시 로그인 필수: 로그인/로그아웃/회원가입 신청 외 모든 POST API 인증 요구
         if path.startswith("/api/") and path not in ("/api/auth/login", "/api/auth/logout", "/api/auth/register"):
@@ -1941,12 +2173,14 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             target_id = int(data["id"])
             
             conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("DELETE FROM audit_targets WHERE id = ?", (target_id,))
-            cursor.execute("DELETE FROM audit_history WHERE target_id = ?", (target_id,))
-            cursor.execute("DELETE FROM schedule_events WHERE target_id = ?", (target_id,))
-            
+            db_adapter.execute_batch_rows(conn, [
+                ("DELETE FROM audit_findings WHERE target_id = ?", (target_id,)),
+                ("DELETE FROM audit_focus_notes WHERE target_id = ?", (target_id,)),
+                ("DELETE FROM checklist_sessions WHERE target_id = ?", (target_id,)),
+                ("DELETE FROM audit_history WHERE target_id = ?", (target_id,)),
+                ("DELETE FROM schedule_events WHERE target_id = ?", (target_id,)),
+                ("DELETE FROM audit_targets WHERE id = ?", (target_id,)),
+            ])
             conn.commit()
             conn.close()
             self.send_json_response({"status": "success", "message": "심사 대상 및 연결된 모든 데이터가 삭제되었습니다."})
@@ -1990,7 +2224,7 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             c.execute("""
                 INSERT INTO users (username, password, name, department, role, status, employee_id, auditor_id)
                 VALUES (?, ?, ?, ?, 'user', 'pending', ?, ?)
-            """, (username, password, name, department, username, aud_id))
+            """, (username, hash_password(password), name, department, username, aud_id))
             conn.commit()
             conn.close()
 
@@ -2018,19 +2252,30 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                 WHERE UPPER(u.username) = UPPER(?)
             """, (username,))
             user_row = c.fetchone()
-            conn.close()
             
-            if not user_row or user_row["password"] != password:
+            ok, needs_rehash = verify_password(user_row["password"], password) if user_row else (False, False)
+            if not ok:
+                conn.close()
                 self.send_json_response({"detail": "아이디 또는 비밀번호가 일치하지 않습니다."}, 401)
                 return
 
             user_status = user_row["status"] if "status" in user_row.keys() else "approved"
             if user_status == "pending":
+                conn.close()
                 self.send_json_response({"detail": "관리자 승인 대기 중인 계정입니다. 시스템 관리자 승인 후 로그인할 수 있습니다."}, 403)
                 return
             if user_status == "rejected":
+                conn.close()
                 self.send_json_response({"detail": "가입 신청이 반려된 계정입니다. 시스템 관리자에게 문의하세요."}, 403)
                 return
+
+            if needs_rehash:
+                try:
+                    c.execute("UPDATE users SET password = ? WHERE id = ?", (hash_password(password), user_row["id"]))
+                    conn.commit()
+                except Exception:
+                    pass
+            conn.close()
             
             user_info = {
                 "id": user_row["id"],
@@ -2101,12 +2346,13 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             c = conn.cursor()
             c.execute("SELECT password FROM users WHERE id = ?", (user["id"],))
             cur_pw = c.fetchone()
-            if not cur_pw or cur_pw["password"] != old_pw:
+            ok, _ = verify_password(cur_pw["password"], old_pw) if cur_pw else (False, False)
+            if not ok:
                 conn.close()
                 self.send_json_response({"detail": "현재 비밀번호가 일치하지 않습니다."}, 400)
                 return
             
-            c.execute("UPDATE users SET password = ? WHERE id = ?", (new_pw, user["id"]))
+            c.execute("UPDATE users SET password = ? WHERE id = ?", (hash_password(new_pw), user["id"]))
             conn.commit()
             conn.close()
             self.send_json_response({"status": "success", "message": "비밀번호가 성공적으로 변경되었습니다."})
@@ -2153,7 +2399,7 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             c.execute("""
                 INSERT INTO users (username, password, name, role, employee_id, auditor_id)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (username, custom_pw, name, role, emp_id, auditor_id))
+            """, (username, hash_password(custom_pw), name, role, emp_id, auditor_id))
             new_uid = c.lastrowid
             conn.commit()
             conn.close()
@@ -2187,7 +2433,7 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             if not new_pw:
                 new_pw = get_default_password_for_employee(target_user["username"])
 
-            c.execute("UPDATE users SET password = ? WHERE id = ?", (new_pw, target_user_id))
+            c.execute("UPDATE users SET password = ? WHERE id = ?", (hash_password(new_pw), target_user_id))
             conn.commit()
             conn.close()
             self.send_json_response({"status": "success", "message": f"비밀번호가 '{new_pw}'(으)로 변경되었습니다."})
@@ -2287,17 +2533,22 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
 
             conn = get_db_connection()
             c = conn.cursor()
+            ftype = data.get("finding_type") or "Finding"
+            sev = data.get("standard_severity") or ("OFI" if ftype == "Observation" else "Minor")
+            ctag = data.get("category_tag", "").strip()
+            dtag = data.get("domain_tag", "").strip() or ctag
             c.execute("""
                 INSERT INTO audit_findings (
                     target_id, audit_date, finding_type, category_tag, title, 
                     finding_detail, regulation_ref, root_cause, action_taken, 
-                    action_status, due_date, auditor
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    action_status, due_date, auditor,
+                    audit_no, car_no, original_rating, standard_severity, domain_tag
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 target_id,
                 data.get("audit_date") or datetime.date.today().strftime("%Y-%m-%d"),
-                data.get("finding_type") or "Finding",
-                data.get("category_tag", "").strip(),
+                ftype,
+                ctag,
                 title,
                 data.get("finding_detail", "").strip(),
                 data.get("regulation_ref", "").strip(),
@@ -2305,7 +2556,12 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                 data.get("action_taken", "").strip(),
                 data.get("action_status") or "조치완료",
                 data.get("due_date", ""),
-                data.get("auditor", "").strip() or (user["name"] if user else "")
+                data.get("auditor", "").strip() or (user["name"] if user else ""),
+                data.get("audit_no", "").strip(),
+                data.get("car_no", "").strip(),
+                data.get("original_rating", "").strip(),
+                sev,
+                dtag
             ))
             fid = c.lastrowid
             conn.commit()
@@ -2322,16 +2578,21 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
 
             conn = get_db_connection()
             c = conn.cursor()
+            ctag = data.get("category_tag", "")
+            dtag = data.get("domain_tag", "") or ctag
+            ftype = data.get("finding_type") or "Finding"
+            sev = data.get("standard_severity") or ("OFI" if ftype == "Observation" else "Minor")
             c.execute("""
                 UPDATE audit_findings SET
                     audit_date = ?, finding_type = ?, category_tag = ?, title = ?,
                     finding_detail = ?, regulation_ref = ?, root_cause = ?, action_taken = ?,
-                    action_status = ?, due_date = ?, auditor = ?
+                    action_status = ?, due_date = ?, auditor = ?,
+                    domain_tag = ?, standard_severity = ?
                 WHERE id = ?
             """, (
                 data.get("audit_date"),
-                data.get("finding_type"),
-                data.get("category_tag", ""),
+                ftype,
+                ctag,
                 data.get("title"),
                 data.get("finding_detail", ""),
                 data.get("regulation_ref", ""),
@@ -2340,6 +2601,8 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
                 data.get("action_status"),
                 data.get("due_date", ""),
                 data.get("auditor", ""),
+                dtag,
+                sev,
                 fid
             ))
             conn.commit()
