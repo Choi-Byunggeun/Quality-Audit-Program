@@ -4736,6 +4736,10 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
 
     // Elements
     const checklistTargetSelect = document.getElementById("checklist-target-select");
+    const checklistTargetSearch = document.getElementById("checklist-target-search");
+    const btnClearTargetSearch = document.getElementById("btn-clear-target-search");
+    const checklistTargetSearchResults = document.getElementById("checklist-target-search-results");
+    let targetSearchActiveIndex = -1;
     const checklistTemplateSelect = document.getElementById("checklist-template-select");
     const btnOpenChecklistHistory = document.getElementById("btn-open-checklist-history");
     const btnOpenTemplateUpload = document.getElementById("btn-open-template-upload");
@@ -4789,7 +4793,10 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
         if (needTargets && targets) checklistAllTargets = targets;
 
         // 2. 점검 대상 드롭다운 구성
-        populateChecklistTargetDropdown();
+        if (checklistTargetSearch) checklistTargetSearch.value = "";
+        if (btnClearTargetSearch) btnClearTargetSearch.style.display = "none";
+        if (checklistTargetSearchResults) checklistTargetSearchResults.style.display = "none";
+        populateChecklistTargetDropdown("");
 
         // 3. 선택할 대상 결정 (파라미터 > 기존 선택 > 본인 배정 일정 > 첫번째 대상)
         let tid = targetIdToSelect;
@@ -4824,11 +4831,32 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
         }
     }
 
-    // 7대 분야별 대상 드롭다운 채우기
-    function populateChecklistTargetDropdown() {
+    // 7대 분야별 대상 드롭다운 채우기 (검색어 필터 지원)
+    function getFilteredChecklistTargets(query = "") {
+        const q = (query || "").trim().toLowerCase();
+        if (!q) return checklistAllTargets;
+        const qCompact = q.replace(/\s+/g, "");
+        return checklistAllTargets.filter(t => {
+            const name = (t.station_name || "").toLowerCase();
+            const cat = (t.category || "").toLowerCase();
+            const op = (t.operation_status || "").toLowerCase();
+            return (
+                name.includes(q) ||
+                name.replace(/\s+/g, "").includes(qCompact) ||
+                cat.includes(q) ||
+                op.includes(q)
+            );
+        });
+    }
+
+    function populateChecklistTargetDropdown(filterQuery = "") {
         if (!checklistTargetSelect) return;
-        const currentVal = checklistTargetSelect.value;
-        checklistTargetSelect.innerHTML = '<option value="" disabled selected>점검 대상을 선택하세요</option>';
+        const currentVal = selectedChecklistTargetId ? String(selectedChecklistTargetId) : checklistTargetSelect.value;
+        const targetsToRender = getFilteredChecklistTargets(filterQuery);
+
+        checklistTargetSelect.innerHTML = filterQuery.trim()
+            ? `<option value="" disabled>${targetsToRender.length}개 검색됨 (선택하세요)</option>`
+            : '<option value="" disabled selected>점검 대상을 선택하세요</option>';
 
         const catGroups = {
             "내부 부서": [],
@@ -4840,12 +4868,13 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
             "국내업체": []
         };
 
-        checklistAllTargets.forEach(t => {
+        targetsToRender.forEach(t => {
             const cat = t.category || "기타";
             if (!catGroups[cat]) catGroups[cat] = [];
             catGroups[cat].push(t);
         });
 
+        let hasCurrentInFiltered = false;
         for (const [catName, targets] of Object.entries(catGroups)) {
             if (targets.length === 0) continue;
             const optgroup = document.createElement("optgroup");
@@ -4855,12 +4884,60 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
                 opt.value = t.id;
                 const opTag = t.operation_status === "비운항" ? " [비운항]" : "";
                 opt.textContent = `${t.station_name}${opTag}`;
+                if (String(t.id) === String(currentVal)) hasCurrentInFiltered = true;
                 optgroup.appendChild(opt);
             });
             checklistTargetSelect.appendChild(optgroup);
         }
 
-        if (currentVal) checklistTargetSelect.value = currentVal;
+        if (currentVal && hasCurrentInFiltered) {
+            checklistTargetSelect.value = currentVal;
+        }
+    }
+
+    function renderTargetSearchResults(query = "") {
+        if (!checklistTargetSearchResults) return;
+        const matches = getFilteredChecklistTargets(query);
+        targetSearchActiveIndex = -1;
+
+        if (matches.length === 0) {
+            checklistTargetSearchResults.innerHTML = `<div class="target-search-empty">일치하는 심사 대상이 없습니다.</div>`;
+            checklistTargetSearchResults.style.display = "block";
+            return;
+        }
+
+        checklistTargetSearchResults.innerHTML = "";
+        const frag = document.createDocumentFragment();
+        matches.slice(0, 60).forEach((t, idx) => {
+            const item = document.createElement("div");
+            item.className = "target-search-result-item" + (String(t.id) === String(selectedChecklistTargetId) ? " selected" : "");
+            item.dataset.targetId = t.id;
+            item.dataset.idx = idx;
+            const opTag = t.operation_status === "비운항" ? " [비운항]" : "";
+            item.innerHTML = `
+                <span class="target-search-result-name">${escapeHtml(t.station_name)}${opTag}</span>
+                <span class="target-search-result-cat">${escapeHtml(t.category || "기타")}</span>
+            `;
+            item.addEventListener("mousedown", (e) => {
+                e.preventDefault();
+                selectChecklistTargetFromSearch(t.id);
+            });
+            frag.appendChild(item);
+        });
+        checklistTargetSearchResults.appendChild(frag);
+        checklistTargetSearchResults.style.display = "block";
+    }
+
+    function selectChecklistTargetFromSearch(targetId) {
+        const tid = parseInt(targetId, 10);
+        if (!tid) return;
+        selectedChecklistTargetId = tid;
+        if (checklistTargetSearch) checklistTargetSearch.value = "";
+        if (btnClearTargetSearch) btnClearTargetSearch.style.display = "none";
+        if (checklistTargetSearchResults) checklistTargetSearchResults.style.display = "none";
+        populateChecklistTargetDropdown("");
+        if (checklistTargetSelect) checklistTargetSelect.value = tid;
+        loadChecklistSessionData(tid, selectedYear);
     }
 
     // 템플릿 드롭다운 채우기
@@ -5380,6 +5457,70 @@ ${today}\tObservation\t자재관리\t냉장보관 실란트 온도 기록 공란
     }
 
     // 이벤트 리스너 바인딩
+    if (checklistTargetSearch) {
+        const updateSearchUI = (openPopup = true) => {
+            const q = checklistTargetSearch.value || "";
+            if (btnClearTargetSearch) {
+                btnClearTargetSearch.style.display = q.trim() ? "flex" : "none";
+            }
+            populateChecklistTargetDropdown(q);
+            if (openPopup) {
+                renderTargetSearchResults(q);
+            }
+        };
+
+        checklistTargetSearch.addEventListener("input", () => updateSearchUI(true));
+        checklistTargetSearch.addEventListener("focus", () => renderTargetSearchResults(checklistTargetSearch.value || ""));
+        checklistTargetSearch.addEventListener("blur", () => {
+            setTimeout(() => {
+                if (checklistTargetSearchResults) checklistTargetSearchResults.style.display = "none";
+            }, 150);
+        });
+        checklistTargetSearch.addEventListener("keydown", (e) => {
+            if (!checklistTargetSearchResults || checklistTargetSearchResults.style.display === "none") {
+                if (e.key === "ArrowDown" || e.key === "Enter") {
+                    renderTargetSearchResults(checklistTargetSearch.value || "");
+                }
+                return;
+            }
+            const items = Array.from(checklistTargetSearchResults.querySelectorAll(".target-search-result-item"));
+            if (items.length === 0) return;
+
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                targetSearchActiveIndex = (targetSearchActiveIndex + 1) % items.length;
+                items.forEach((el, i) => el.classList.toggle("active", i === targetSearchActiveIndex));
+                items[targetSearchActiveIndex].scrollIntoView({ block: "nearest" });
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                targetSearchActiveIndex = targetSearchActiveIndex <= 0 ? items.length - 1 : targetSearchActiveIndex - 1;
+                items.forEach((el, i) => el.classList.toggle("active", i === targetSearchActiveIndex));
+                items[targetSearchActiveIndex].scrollIntoView({ block: "nearest" });
+            } else if (e.key === "Enter") {
+                e.preventDefault();
+                const targetEl = targetSearchActiveIndex >= 0 ? items[targetSearchActiveIndex] : items[0];
+                if (targetEl && targetEl.dataset.targetId) {
+                    selectChecklistTargetFromSearch(targetEl.dataset.targetId);
+                    checklistTargetSearch.blur();
+                }
+            } else if (e.key === "Escape") {
+                checklistTargetSearchResults.style.display = "none";
+            }
+        });
+    }
+
+    if (btnClearTargetSearch) {
+        btnClearTargetSearch.addEventListener("click", () => {
+            if (checklistTargetSearch) {
+                checklistTargetSearch.value = "";
+                checklistTargetSearch.focus();
+            }
+            btnClearTargetSearch.style.display = "none";
+            populateChecklistTargetDropdown("");
+            renderTargetSearchResults("");
+        });
+    }
+
     if (checklistTargetSelect) {
         checklistTargetSelect.addEventListener("change", (e) => {
             selectedChecklistTargetId = parseInt(e.target.value);
