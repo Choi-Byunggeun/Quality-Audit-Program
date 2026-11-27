@@ -711,7 +711,7 @@ def _compute_schedule_for_target(target, last_audit, events, existing_histories,
                     "event_detail": db_record["event_detail"],
                     "remarks": db_record["remarks"] or "정기 직접심사",
                     "scheduled_date": s_date,
-                    "auditor": db_record["auditor"] or ref_auditor,
+                    "auditor": db_record["auditor"] if db_record["auditor"] is not None else "",
                     "symbol": "◎" if audit_type == "간접" else "●"
                 }
             else:
@@ -765,7 +765,7 @@ def _compute_schedule_for_target(target, last_audit, events, existing_histories,
                 "event_detail": db_record["event_detail"],
                 "remarks": db_record["remarks"] or "",
                 "scheduled_date": s_date,
-                "auditor": db_record["auditor"] or ref_auditor,
+                "auditor": db_record["auditor"] if db_record["auditor"] is not None else "",
                 "symbol": "◎" if a_type == "간접" else "●"
             }
             ref_year = year
@@ -1857,17 +1857,20 @@ class BuiltinWebServer(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/plan/export":
-            plan_path = os.path.join(BASE_DIR, "2027년 정비부문 품질심사 계획표 (R.0).xlsx")
-            if not os.path.exists(plan_path):
-                alt_plan = os.path.join(CHECKLIST_DIR, "2027년 정비부문 품질심사 계획표 (R.0).xlsx")
-                if os.path.exists(alt_plan):
-                    plan_path = alt_plan
-            if not os.path.exists(plan_path):
+            candidates = [
+                os.path.join(BASE_DIR, "품질심사 계획", "2027년 정비부문 품질심사 계획표.xlsx"),
+                os.path.join(BASE_DIR, "2027년 정비부문 품질심사 계획표.xlsx"),
+                os.path.join(BASE_DIR, "2027년 정비부문 품질심사 계획표 (R.0).xlsx"),
+                os.path.join(CHECKLIST_DIR, "2027년 정비부문 품질심사 계획표 (R.0).xlsx"),
+            ]
+            plan_path = next((p for p in candidates if os.path.exists(p)), "")
+            if not plan_path:
                 self.send_json_response({"detail": "계획표 엑셀 파일을 찾을 수 없습니다."}, 404)
                 return
             with open(plan_path, "rb") as f:
                 data_bytes = f.read()
-            encoded_fname = urllib.parse.quote("2027년 정비부문 품질심사 계획표 (R.0).xlsx")
+            out_name = os.path.basename(plan_path)
+            encoded_fname = urllib.parse.quote(out_name)
             self.send_response(200)
             self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{encoded_fname}")

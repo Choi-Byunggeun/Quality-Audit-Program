@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "app.py": {
-      "includeFiles": "{static/**,품질심사 체크리스트/**,*.xlsx,audit.db}"
+      "includeFiles": "{static/**,품질심사 체크리스트/**,품질심사 계획/2027년 정비부문 품질심사 계획표.xlsx,*.xlsx,audit.db}"
     }
   }
 }
